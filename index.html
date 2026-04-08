@@ -22,7 +22,7 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // KONFIGURACE FIREBASE
+        // KONFIGURACE FIREBASE (TVOJE ÚDAJE)
         const firebaseConfig = {
             apiKey: "AIzaSyANCEwT20Z4-j-J3UHnY8YpRyAl6f7Nj3Y",
             authDomain: "soutez-141086.firebaseapp.com",
@@ -38,6 +38,7 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
+        // Export služeb pro React komponentu
         window.FirebaseServices = { auth, db, doc, onSnapshot, setDoc, signInAnonymously, onAuthStateChanged };
     </script>
 
@@ -48,6 +49,7 @@
         // ID aplikace pro databázi
         const APP_DB_ID = 'view-cz-soutez-2026';
 
+        // Výchozí data obchodníků
         const INITIAL_DATA = [
             { id: '1', name: 'Jan Novák', nfc: 0, rev: 0 },
             { id: '2', name: 'Petr Svoboda', nfc: 0, rev: 0 },
@@ -56,7 +58,7 @@
 
         function App() {
             const [salesData, setSalesData] = useState([]);
-            const [view, setView] = useState('board');
+            const [view, setView] = useState('board'); // 'board' nebo 'rules'
             const [isAdmin, setIsAdmin] = useState(false);
             const [adminPin, setAdminPin] = useState('');
             const [showPinModal, setShowPinModal] = useState(false);
@@ -64,16 +66,21 @@
             const [isLoading, setIsLoading] = useState(true);
             const [repToDelete, setRepToDelete] = useState(null);
 
+            // --- PŘIPOJENÍ K FIREBASE ---
             useEffect(() => {
+                // Přihlášení uživatele (anonymně)
                 signInAnonymously(auth).catch(err => console.error("Chyba přihlášení:", err));
 
                 const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
                     if (user) {
+                        // Připojení k dokumentu s daty
                         const docRef = doc(db, 'artifacts', APP_DB_ID, 'public', 'data', 'sales', 'main');
+                        
                         const unsubscribeSnap = onSnapshot(docRef, (snap) => {
                             if (snap.exists()) {
                                 setSalesData(snap.data().users || []);
                             } else {
+                                // Pokud databáze neexistuje, vytvoříme ji s prázdnými daty
                                 setDoc(docRef, { users: INITIAL_DATA });
                                 setSalesData(INITIAL_DATA);
                             }
@@ -88,19 +95,24 @@
                 return () => unsubscribeAuth();
             }, []);
 
+            // --- LOGIKA UKLÁDÁNÍ ---
             const pushToCloud = async (newData) => {
                 setSalesData(newData);
                 try {
                     const docRef = doc(db, 'artifacts', APP_DB_ID, 'public', 'data', 'sales', 'main');
                     await setDoc(docRef, { users: newData });
                 } catch (err) {
-                    console.error("Zápis selhal:", err);
+                    console.error("Zápis do cloudu selhal:", err);
                 }
             };
 
             const updateRep = (id, field, value) => {
-                const numValue = field === 'name' ? value : Number(value);
-                const newData = salesData.map(rep => rep.id === id ? { ...rep, [field]: numValue } : rep);
+                // Oprava pro mazání čísel v inputu: Pokud uživatel políčko vyprázdní, uložíme '' místo vynucené 0.
+                let parsedValue = value;
+                if (field !== 'name') {
+                    parsedValue = value === '' ? '' : Number(value);
+                }
+                const newData = salesData.map(rep => rep.id === id ? { ...rep, [field]: parsedValue } : rep);
                 pushToCloud(newData);
             };
 
@@ -128,13 +140,10 @@
                 }
             };
 
-            const sortedNFC = useMemo(() => [...salesData].sort((a, b) => b.nfc - a.nfc), [salesData]);
-            const sortedRev = useMemo(() => [...salesData].sort((a, b) => b.rev - a.rev), [salesData]);
-            
-            // Měnové formátovače (1 EUR = 25 CZK, 1 CZK = 15.5 HUF dle pravidel)
-            const formatCZK = (v) => new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(v);
-            const formatEUR = (v) => `${new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(v / 25)} €`;
-            const formatHUF = (v) => `${new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(v * 15.5)} HUF`;
+            // Seřazení pro žebříčky - bezpečně převádíme prázdné stringy na nuly pro matematiku
+            const sortedNFC = useMemo(() => [...salesData].sort((a, b) => (Number(b.nfc) || 0) - (Number(a.nfc) || 0)), [salesData]);
+            const sortedRev = useMemo(() => [...salesData].sort((a, b) => (Number(b.rev) || 0) - (Number(a.rev) || 0)), [salesData]);
+            const formatCZK = (v) => new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(v || 0);
 
             if (isLoading) {
                 return (
@@ -171,231 +180,67 @@
                         {view === 'rules' ? (
                             /* SEKCE PRAVIDEL (DOKUMENTY) */
                             <div className="max-w-4xl mx-auto space-y-12 animate-in">
-                                
-                                {/* 1. NFC KRÁL TÝDNE */}
+                                {/* HRA O OBRAT */}
                                 <article className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
-                                    <div className="bg-blue-700 p-8 sm:p-12 text-white">
-                                        <h2 className="text-3xl sm:text-4xl font-black mb-2 tracking-tight">Akční plán soutěže: NFC Král týdne</h2>
-                                        <p className="opacity-80 font-bold uppercase tracking-widest text-sm">Duben - Startujeme od 13.04.2026</p>
+                                    <div className="bg-emerald-600 p-8 text-white">
+                                        <h2 className="text-3xl font-black mb-1">Dubnová výzva: Hra o obrat</h2>
+                                        <p className="opacity-70 font-bold uppercase tracking-widest text-[10px]">Období: 01. 04. – 01. 05. 2026</p>
                                     </div>
-                                    <div className="p-8 sm:p-12 space-y-10">
-                                        <p className="text-xl text-slate-600 leading-relaxed italic border-l-4 border-blue-500 pl-6">
-                                            Týme, od příštího pondělí spouštíme rychlou a naprosto přímočarou soutěž zaměřenou na naše NFC produkty. Pravidla jsou jednoduchá, odměny okamžité. Žádné složité vzorce, žádné dlouhé čekání.
-                                        </p>
-
-                                        <section className="space-y-6">
-                                            <div className="flex items-center gap-3 mb-6">
-                                                <span className="text-3xl">🏆</span>
-                                                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Soutěž: NFC Král týdne</h3>
-                                            </div>
-                                            
-                                            <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 mb-6">
-                                                <p className="text-blue-900 font-black text-lg">Cíl: Prodat v daném týdnu nejvíce kusů NFC produktů.</p>
-                                            </div>
-
-                                            <div className="overflow-x-auto rounded-3xl border border-slate-200 shadow-sm">
-                                                <table className="w-full text-left min-w-[600px]">
-                                                    <thead className="bg-slate-100">
-                                                        <tr>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest w-1/3">Parametr</th>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest">Popis</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-100 text-slate-700 bg-white">
-                                                        <tr className="hover:bg-slate-50 transition-colors">
-                                                            <td className="p-5 font-bold text-slate-800">Hlavní pravidlo</td>
-                                                            <td className="p-5 font-medium">Vítězí obchodník s absolutně nejvyšším počtem prodaných NFC kusů za dané kolo.</td>
-                                                        </tr>
-                                                        <tr className="hover:bg-slate-50 transition-colors">
-                                                            <td className="p-5 font-bold text-rose-600">Kvalifikační minimum</td>
-                                                            <td className="p-5 font-medium text-rose-600">Pro odemčení výhry je nutné udat minimálně <strong>6 prodaných kusů</strong> za týden.</td>
-                                                        </tr>
-                                                        <tr className="bg-blue-50/50 hover:bg-blue-100 transition-colors">
-                                                            <td className="p-5 font-black text-blue-800">Odměna pro vítěze</td>
-                                                            <td className="p-5 font-black text-blue-800 text-lg">1 000 Kč / 40 € / 15 500 HUF</td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-
-                                            <div className="bg-amber-50 border border-amber-200 p-6 sm:p-8 rounded-3xl mt-4 relative overflow-hidden">
-                                                <div className="absolute top-0 right-0 p-4 opacity-10 text-6xl">⚠️</div>
-                                                <h4 className="uppercase text-xs tracking-widest mb-2 font-black text-amber-800">Důležitá poznámka</h4>
-                                                <p className="text-amber-900 font-medium relative z-10">
-                                                    Do soutěže se započítávají všechny NFC karty, stojánky a plakety z našeho ceníku. <strong className="text-rose-600">Obyčejné samolepky bez NFC technologie jsou ze soutěže vyloučeny.</strong>
-                                                </p>
-                                            </div>
-                                        </section>
-
-                                        <section className="space-y-6 pt-6 border-t border-slate-100">
-                                            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-3">
-                                                <span className="text-3xl">📅</span> Harmonogram soutěžních kol
-                                            </h3>
-                                            <p className="text-slate-600 font-medium">Každý týden začínáme s čistým štítem, takže šanci vyhrát má pokaždé každý z vás!</p>
-                                            
-                                            <div className="overflow-x-auto rounded-3xl border border-slate-200 shadow-sm">
-                                                <table className="w-full text-left min-w-[600px]">
-                                                    <thead className="bg-slate-100">
-                                                        <tr>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest">Kolo</th>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest">Období</th>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest">Odměna</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-100 text-slate-700 bg-white">
-                                                        <tr className="hover:bg-slate-50 transition-colors">
-                                                            <td className="p-5 font-bold whitespace-nowrap">1. kolo</td>
-                                                            <td className="p-5 font-medium">Pondělí 13. 4. – Neděle 19. 4. 2026</td>
-                                                            <td className="p-5 font-black text-slate-800 whitespace-nowrap">1 000 Kč / 40 € / 15 500 HUF</td>
-                                                        </tr>
-                                                        <tr className="hover:bg-slate-50 transition-colors">
-                                                            <td className="p-5 font-bold whitespace-nowrap">2. kolo</td>
-                                                            <td className="p-5 font-medium">Pondělí 20. 4. – Neděle 26. 4. 2026</td>
-                                                            <td className="p-5 font-black text-slate-800 whitespace-nowrap">1 000 Kč / 40 € / 15 500 HUF</td>
-                                                        </tr>
-                                                        <tr className="bg-blue-50/50 hover:bg-blue-100 transition-colors">
-                                                            <td className="p-5 font-bold text-blue-800 whitespace-nowrap">3. kolo <span className="opacity-70 text-xs font-medium">(Prodloužené finále)</span></td>
-                                                            <td className="p-5 font-medium text-blue-800">Pondělí 27. 4. – čtvrtek 30. 4. 2026</td>
-                                                            <td className="p-5 font-black text-blue-800 whitespace-nowrap">1 000 Kč / 40 € / 15 500 HUF</td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </section>
-
-                                        <section className="bg-slate-800 p-8 sm:p-10 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
-                                            <div className="relative z-10">
-                                                <h3 className="text-xl font-black mb-8 uppercase tracking-widest text-slate-300">Organizační pokyny</h3>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                                    <div>
-                                                        <div className="flex items-center gap-4 mb-3">
-                                                            <span className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center font-black text-lg">1</span>
-                                                            <h4 className="font-bold text-xl">Sledování výsledků</h4>
-                                                        </div>
-                                                        <p className="text-slate-400 pl-14 text-sm leading-relaxed">Každé pondělí ráno proběhne vyhodnocení předchozího týdne a sdílení průběžných výsledků.</p>
-                                                    </div>
-                                                    <div>
-                                                        <div className="flex items-center gap-4 mb-3">
-                                                            <span className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center font-black text-lg">2</span>
-                                                            <h4 className="font-bold text-xl">Strategie</h4>
-                                                        </div>
-                                                        <p className="text-slate-400 pl-14 text-sm leading-relaxed">Doporučujeme projít si seznam stávajících klientů i nových leadů a vytipovat ty, pro které jsou NFC produkty (např. Google Review stojánky nebo digitální vizitky) ideálním doplňkem.</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </section>
-
-                                        <div className="text-center pt-8 pb-4">
-                                            <p className="text-3xl font-black text-blue-600 uppercase tracking-tighter italic">
-                                                Startujeme v pondělí 13. dubna! 🔥
-                                            </p>
-                                        </div>
-                                    </div>
-                                </article>
-
-                                {/* 2. HRA O OBRAT */}
-                                <article className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
-                                    <div className="bg-emerald-600 p-8 sm:p-12 text-white">
-                                        <h2 className="text-3xl sm:text-4xl font-black mb-2 tracking-tight">Dubnová výzva: Hra o obrat</h2>
-                                        <p className="opacity-80 font-bold uppercase tracking-widest text-sm">Období soutěže: 01. 04. – 01. 05. 2026</p>
-                                    </div>
-                                    <div className="p-8 sm:p-12 space-y-10">
+                                    <div className="p-8 space-y-8">
                                         <p className="text-xl text-slate-600 leading-relaxed italic border-l-4 border-emerald-500 pl-6">
-                                            Týme, k týdenním NFC bleskovkám přidáváme hlavní měsíční soutěž. Tato výzva je zaměřena na váš celkový obrat a má vás motivovat k dosažení vyšších provizních hladin.
+                                            Týme, tato výzva je zaměřena na váš celkový obrat a má vás motivovat k dosažení vyšších provizních hladin.
                                         </p>
-
-                                        <section className="space-y-6">
-                                            <div>
-                                                <h3 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-3">
-                                                    <span className="text-3xl">🏆</span> Odměny pro TOP 3 obchodníky
-                                                </h3>
-                                                <p className="text-slate-600 font-medium mb-6">Vítězem se stávají tři obchodníci s absolutně nejvyšším dosaženým obratem v daném období.</p>
-                                            </div>
-                                            
-                                            <div className="overflow-x-auto rounded-3xl border border-slate-200 shadow-sm">
-                                                <table className="w-full text-left min-w-[600px]">
-                                                    <thead className="bg-slate-100">
-                                                        <tr>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest">Umístění</th>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest">Odměna (CZK)</th>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest">Odměna (EUR)</th>
-                                                            <th className="p-5 font-black text-slate-500 uppercase text-[10px] tracking-widest">Odměna (HUF)</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-100 text-slate-700 bg-white">
-                                                        <tr className="bg-amber-50/30 hover:bg-amber-50 transition-colors">
-                                                            <td className="p-5 font-bold whitespace-nowrap text-lg">🥇 1. místo</td>
-                                                            <td className="p-5 font-black text-amber-700 text-lg whitespace-nowrap">5 000 Kč</td>
-                                                            <td className="p-5 font-bold text-slate-600 whitespace-nowrap">200 €</td>
-                                                            <td className="p-5 font-bold text-slate-600 whitespace-nowrap">77 500 HUF</td>
-                                                        </tr>
-                                                        <tr className="bg-slate-50/50 hover:bg-slate-100 transition-colors">
-                                                            <td className="p-5 font-bold whitespace-nowrap text-lg">🥈 2. místo</td>
-                                                            <td className="p-5 font-black text-slate-700 text-lg whitespace-nowrap">3 000 Kč</td>
-                                                            <td className="p-5 font-bold text-slate-600 whitespace-nowrap">120 €</td>
-                                                            <td className="p-5 font-bold text-slate-600 whitespace-nowrap">46 500 HUF</td>
-                                                        </tr>
-                                                        <tr className="bg-orange-50/30 hover:bg-orange-50 transition-colors">
-                                                            <td className="p-5 font-bold whitespace-nowrap text-lg">🥉 3. místo</td>
-                                                            <td className="p-5 font-black text-orange-700 text-lg whitespace-nowrap">1 000 Kč</td>
-                                                            <td className="p-5 font-bold text-slate-600 whitespace-nowrap">40 €</td>
-                                                            <td className="p-5 font-bold text-slate-600 whitespace-nowrap">15 500 HUF</td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </section>
-
-                                        <section className="bg-slate-50 p-8 sm:p-10 rounded-[2.5rem] border border-slate-100 shadow-inner">
-                                            <h3 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
-                                                <span className="text-3xl">🎯</span> Pravidla a podmínky soutěže
-                                            </h3>
-                                            <div className="space-y-6 text-slate-700">
-                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 bg-white rounded-2xl border border-slate-200 shadow-sm">
-                                                    <span className="font-black text-slate-400 uppercase text-[10px] tracking-widest mb-2 sm:mb-0 w-1/3">Sledované období</span>
-                                                    <span className="font-bold text-slate-800 flex-1">Počítají se všechny uzavřené objednávky od pondělí 01. 04. do pátku 01. 05. 2026.</span>
+                                        <section>
+                                            <h3 className="text-lg font-black mb-4 uppercase tracking-tighter text-slate-800">🏆 Odměny pro TOP 3 obchodníky</h3>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                                                <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100">
+                                                    <span className="text-4xl block mb-2">🥇</span>
+                                                    <span className="block font-black text-2xl text-amber-800 uppercase">5 000 Kč</span>
                                                 </div>
-                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 bg-white rounded-2xl border border-slate-200 shadow-sm">
-                                                    <span className="font-black text-slate-400 uppercase text-[10px] tracking-widest mb-2 sm:mb-0 w-1/3">Kvalifikační limit</span>
-                                                    <span className="font-bold text-rose-600 flex-1">Aby se výhra odemkla, musí obchodník dosáhnout minimálního obratu <strong className="font-black text-lg whitespace-nowrap">50 000 Kč</strong> <span className="opacity-70">/ 2 000 € / 775 000 HUF</span>.</span>
+                                                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200">
+                                                    <span className="text-4xl block mb-2">🥈</span>
+                                                    <span className="block font-black text-2xl text-slate-800 uppercase">3 000 Kč</span>
                                                 </div>
-                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 bg-white rounded-2xl border border-slate-200 shadow-sm">
-                                                    <span className="font-black text-slate-400 uppercase text-[10px] tracking-widest mb-2 sm:mb-0 w-1/3">Průběžné výsledky</span>
-                                                    <span className="font-bold text-slate-800 flex-1">Tabulka s aktuálním pořadím bude sdílena každé pondělí ráno.</span>
+                                                <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100">
+                                                    <span className="text-4xl block mb-2">🥉</span>
+                                                    <span className="block font-black text-2xl text-orange-800 uppercase">1 000 Kč</span>
                                                 </div>
                                             </div>
                                         </section>
-
-                                        <section className="bg-emerald-600 p-8 sm:p-10 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
-                                            <div className="relative z-10 space-y-4">
-                                                <h3 className="text-2xl sm:text-3xl font-black flex items-center gap-3">
-                                                    <span className="text-4xl">🚀</span> Hlavní meta: Provize 25 %
-                                                </h3>
-                                                <p className="text-emerald-50 text-lg leading-relaxed">
-                                                    Nezapomeňte, že tato soutěž je ideálním nástrojem, jak se přiblížit k celkovému měsíčnímu cíli.
-                                                </p>
-                                                <div className="bg-white/20 p-6 rounded-2xl border border-white/20 backdrop-blur-sm mt-4">
-                                                    <p className="font-bold text-xl leading-snug">
-                                                        Při překonání obratu <strong className="font-black">250 000 Kč</strong> / 10 000 € / 3 875 000 HUF dochází k navýšení vaší provize z 20 % na <strong className="font-black text-2xl text-yellow-300">25 %</strong>.
-                                                    </p>
-                                                </div>
-                                                <p className="text-emerald-100 font-bold italic pt-4">
-                                                    Využijte tuto soutěž jako odrazový můstek a sáhněte si na vyšší provize i bonusy pro nejlepší!
-                                                </p>
-                                            </div>
-                                            <div className="absolute -bottom-10 -right-10 text-white opacity-10 text-[12rem] font-black leading-none select-none">
-                                                25
-                                            </div>
-                                        </section>
-
-                                        <div className="text-center pt-6 pb-4">
-                                            <p className="text-3xl font-black text-emerald-600 uppercase tracking-tighter italic">
-                                                Šlápněte do toho, jdeme na to! 💪😎
-                                            </p>
+                                        <div className="bg-emerald-600 text-white p-8 rounded-[2rem] shadow-lg shadow-emerald-100">
+                                            <h3 className="text-xl font-black mb-2 uppercase">🚀 HLAVNÍ META: PROVIZE 25 %</h3>
+                                            <p className="text-lg opacity-90 leading-snug">Při překonání obratu <strong>250 000 Kč</strong> získáte navýšení vaší provize z 20 % na 25 %!</p>
                                         </div>
                                     </div>
                                 </article>
 
+                                {/* NFC KRÁL */}
+                                <article className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
+                                    <div className="bg-blue-700 p-8 text-white">
+                                        <h2 className="text-3xl font-black mb-1">NFC Král týdne</h2>
+                                        <p className="opacity-70 font-bold uppercase tracking-widest text-[10px]">Startujeme od 13.04.2026</p>
+                                    </div>
+                                    <div className="p-8 space-y-6">
+                                        <div className="bg-blue-50 border-l-4 border-blue-600 p-6 rounded-r-3xl">
+                                            <h3 className="font-black text-blue-900 text-sm uppercase tracking-widest mb-2">Cíl soutěže</h3>
+                                            <p className="text-blue-800 text-lg font-bold">Prodat v daném týdnu nejvíce kusů NFC produktů (karty, stojánky, plakety).</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            <div className="space-y-4">
+                                                <p className="text-slate-600 font-medium">Kvalifikace: <strong>Minimálně 6 ks</strong> za týden pro odemčení výhry.</p>
+                                                <p className="text-slate-600 font-medium text-blue-600">Odměna: <strong>1 000 Kč pro vítěze týdne.</strong></p>
+                                            </div>
+                                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200">
+                                                <h3 className="font-black text-xs uppercase tracking-widest mb-4">📅 Harmonogram kol</h3>
+                                                <div className="space-y-2 text-sm">
+                                                    <div className="flex justify-between p-2 border-b border-white"><span>1. kolo</span><span className="font-bold">13.4. - 19.4.</span></div>
+                                                    <div className="flex justify-between p-2 border-b border-white"><span>2. kolo</span><span className="font-bold">20.4. - 26.4.</span></div>
+                                                    <div className="flex justify-between p-2 font-bold text-blue-600 uppercase italic"><span>3. kolo</span><span>27.4. - 30.4.</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </article>
                             </div>
                         ) : (
                             /* ŽEBŘÍČKY (BOARDS) */
@@ -404,30 +249,32 @@
                                 <section className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 flex flex-col transition-all hover:shadow-blue-900/5">
                                     <div className="bg-gradient-to-r from-blue-800 to-blue-600 p-8 sm:p-10 text-white flex justify-between items-center">
                                         <div>
-                                            <h2 className="text-2xl font-black uppercase tracking-tighter italic">🏆 NFC Král</h2>
-                                            <p className="text-blue-100 text-[9px] font-bold uppercase tracking-[0.3em] mt-2">Týdenní stav kusů</p>
+                                            <h2 className="text-2xl font-black uppercase tracking-tighter italic">🏆 NFC Král týdne</h2>
+                                            <p className="text-blue-100 text-[9px] font-bold uppercase tracking-[0.3em] mt-2">Týdenní prodeje (Target 6+)</p>
                                         </div>
-                                        <div className="bg-white/20 px-5 py-2 rounded-full text-[10px] font-black backdrop-blur-md uppercase tracking-widest">Kvalifikace: 6+</div>
+                                        <div className="bg-white/20 px-5 py-2 rounded-full text-[10px] font-black backdrop-blur-md uppercase tracking-widest">Min. 6 ks</div>
                                     </div>
                                     <div className="divide-y divide-slate-100 flex-grow">
                                         {sortedNFC.map((rep, index) => {
-                                            const isQual = rep.nfc >= 6;
-                                            const maxN = Math.max(...salesData.map(r => r.nfc), 10);
+                                            const nfcVal = Number(rep.nfc) || 0;
+                                            const isQualified = nfcVal >= 6;
+                                            const maxVal = Math.max(...salesData.map(r => Number(r.nfc) || 0), 10);
+                                            const progress = (nfcVal / maxVal) * 100;
                                             return (
                                                 <div key={`nfc-${rep.id}`} className={`p-8 flex items-center gap-8 transition-all ${index === 0 ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
                                                     <div className={`w-14 text-center font-black text-3xl ${index < 3 ? 'text-slate-800' : 'text-slate-200'}`}>
-                                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`}
                                                     </div>
                                                     <div className="flex-grow">
                                                         <div className="flex justify-between font-black text-xl mb-2 items-baseline">
                                                             <span className="text-slate-700">{rep.name}</span>
-                                                            <span className="text-blue-600 text-4xl italic tracking-tighter">{rep.nfc}</span>
+                                                            <span className="text-blue-600 text-4xl italic tracking-tighter">{nfcVal}</span>
                                                         </div>
                                                         <div className="h-4 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200">
-                                                            <div className={`h-full transition-all duration-1000 ease-out ${isQual ? 'bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.4)]' : 'bg-slate-300'}`} style={{ width: `${(rep.nfc / maxN) * 100}%` }}></div>
+                                                            <div className={`h-full transition-all duration-1000 ease-out ${isQualified ? 'bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.4)]' : 'bg-slate-300'}`} style={{ width: `${progress}%` }}></div>
                                                         </div>
-                                                        <div className={`text-[9px] font-black uppercase mt-3 tracking-widest flex justify-between ${isQual ? 'text-emerald-600' : 'text-rose-500'}`}>
-                                                            <span>{isQual ? '✓ Kvalifikace splněna' : `Chybí ${6 - rep.nfc} ks`}</span>
+                                                        <div className="flex justify-between mt-3 text-[10px] font-black uppercase tracking-widest">
+                                                            <span className={isQualified ? 'text-emerald-600' : 'text-rose-500'}>{isQualified ? '✓ Kvalifikován' : `Chybí ${6 - nfcVal} ks`}</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -441,36 +288,38 @@
                                     <div className="bg-gradient-to-r from-emerald-800 to-emerald-600 p-8 sm:p-10 text-white flex justify-between items-center">
                                         <div>
                                             <h2 className="text-2xl font-black uppercase tracking-tighter italic">🎯 Hra o obrat</h2>
-                                            <p className="text-emerald-100 text-[9px] font-bold uppercase tracking-[0.3em] mt-2">Měsíční progres</p>
+                                            <p className="text-emerald-100 text-[9px] font-bold uppercase tracking-[0.3em] mt-2">Měsíční progres (Cíl 250k)</p>
                                         </div>
-                                        <div className="bg-white/20 px-5 py-2 rounded-full text-[10px] font-black backdrop-blur-md uppercase tracking-widest">Kvalifikace: 50k+</div>
+                                        <div className="bg-white/20 px-5 py-2 rounded-full text-[10px] font-black backdrop-blur-md uppercase tracking-widest">25% Meta: 250k</div>
                                     </div>
                                     <div className="divide-y divide-slate-100 flex-grow">
                                         {sortedRev.map((rep, index) => {
-                                            const isQual = rep.rev >= 50000;
-                                            const isBonus = rep.rev >= 250000;
-                                            const progress = Math.min((rep.rev / 250000) * 100, 100);
+                                            const revVal = Number(rep.rev) || 0;
+                                            const isQualified = revVal >= 50000;
+                                            const hasBonus = revVal >= 250000;
+                                            const progress = Math.min((revVal / 250000) * 100, 100);
                                             return (
                                                 <div key={`rev-${rep.id}`} className={`p-8 flex items-center gap-8 transition-all ${index === 0 ? 'bg-emerald-50/50' : 'hover:bg-slate-50'}`}>
                                                     <div className={`w-14 text-center font-black text-3xl ${index < 3 ? 'text-slate-800' : 'text-slate-200'}`}>
-                                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`}
                                                     </div>
                                                     <div className="flex-grow">
                                                         <div className="flex justify-between font-black text-xl mb-2 items-baseline">
                                                             <span className="text-slate-700">{rep.name}</span>
-                                                            <div className="text-right">
-                                                                <div className="text-emerald-600 text-3xl italic tracking-tighter leading-none mb-1.5">{formatCZK(rep.rev)}</div>
-                                                                <div className="text-[10px] font-black text-slate-400 tracking-widest uppercase">
-                                                                    {formatEUR(rep.rev)} <span className="text-slate-300 font-normal mx-1">|</span> {formatHUF(rep.rev)}
-                                                                </div>
-                                                            </div>
+                                                            <span className="text-emerald-600 text-3xl italic tracking-tighter">{formatCZK(revVal)}</span>
                                                         </div>
                                                         <div className="h-4 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200 mt-2">
-                                                            <div className={`h-full transition-all duration-1000 ease-out ${isBonus ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-emerald-400'}`} style={{ width: `${progress}%` }}></div>
+                                                            <div className={`h-full transition-all duration-1000 ease-out ${hasBonus ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-emerald-400'}`} style={{ width: `${progress}%` }}></div>
                                                         </div>
-                                                        <div className="flex justify-between items-center text-[9px] font-black uppercase mt-3 tracking-widest">
-                                                            <span className={isQual ? 'text-emerald-600' : 'text-rose-500'}>{isBonus ? '✓ Kvalifikace splněna | ✨ PROVIZE 25%!' : isQual ? '✓ Kvalifikace splněna' : `Chybí ${formatCZK(50000 - rep.rev)} do kvalifikace`}</span>
-                                                            <span className="text-slate-400 italic">Kvalifikace: 50k Kč / 2k € / 775k HUF</span>
+                                                        <div className="flex justify-between mt-3 text-[10px] font-black uppercase tracking-widest">
+                                                            {hasBonus ? (
+                                                                <span className="text-emerald-600">✨ 25% Provize odemčena!</span>
+                                                            ) : isQualified ? (
+                                                                <span className="text-emerald-600">✓ Kvalifikován (50k+)</span>
+                                                            ) : (
+                                                                <span className="text-rose-500">⚠️ Pod hranicí kvalifikace</span>
+                                                            )}
+                                                            <span className="text-slate-400 italic">Target 250 000 Kč</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -489,7 +338,7 @@
                             isAdmin ? 'bg-rose-600 text-white border-rose-700 shadow-rose-200' : 'bg-white text-slate-800 border-slate-200 hover:scale-110 active:scale-90 shadow-slate-200'
                         }`}
                     >
-                        {isAdmin ? '✕ Zavřít správu' : '⚙️ Upravit výsledky'}
+                        {isAdmin ? '✕ Zavřít správu' : '⚙️ Spravovat výsledky'}
                     </button>
 
                     {/* MODAL PIN */}
@@ -539,7 +388,7 @@
                                                         <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-blue-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
                                                     </div>
                                                     <div>
-                                                        <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat (CZK)</label>
+                                                        <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat (Kč)</label>
                                                         <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
                                                     </div>
                                                 </div>
@@ -557,7 +406,7 @@
                         <div className="fixed inset-0 bg-slate-900/90 flex items-center justify-center z-[110] p-4 backdrop-blur-md">
                             <div className="bg-white p-10 rounded-[3rem] w-full max-w-sm shadow-2xl text-center border border-slate-200">
                                 <h3 className="text-2xl font-black mb-4 text-slate-800 uppercase tracking-tighter">Smazat?</h3>
-                                <p className="text-slate-500 mb-10 font-medium">Opravdu chcete obchodníka trvale odstranit?</p>
+                                <p className="text-slate-500 mb-10 font-medium">Opravdu chcete obchodníka trvale odstranit z obou žebříčků?</p>
                                 <div className="flex gap-4 font-black uppercase text-[10px] tracking-widest">
                                     <button onClick={() => setRepToDelete(null)} className="flex-1 py-5 text-slate-400 hover:text-slate-600 transition-colors">Zrušit</button>
                                     <button onClick={deleteRep} className="flex-1 py-5 bg-rose-600 text-white rounded-[1.5rem] shadow-xl shadow-rose-200 transition-transform active:scale-95">Odstranit</button>

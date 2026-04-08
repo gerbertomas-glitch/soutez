@@ -4,56 +4,122 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Průběžné výsledky - VIEW CZ</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel pro JSX v prohlížeči -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeIn 0.5s ease-out forwards; }
+        body { background-color: #f8fafc; }
+    </style>
 </head>
-<body class="bg-slate-100 text-slate-900 font-sans">
+<body>
     <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // KONFIGURACE FIREBASE (TVOJE ÚDAJE)
+        const firebaseConfig = {
+            apiKey: "AIzaSyANCEwT20Z4-j-J3UHnY8YpRyAl6f7Nj3Y",
+            authDomain: "soutez-141086.firebaseapp.com",
+            projectId: "soutez-141086",
+            storageBucket: "soutez-141086.firebasestorage.app",
+            messagingSenderId: "1024208635457",
+            appId: "1:1024208635457:web:3b976a8d7a91d8420ee8c0",
+            measurementId: "G-CVTDFBCFZ5"
+        };
+        
+        // Inicializace služeb
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Export služeb pro React komponentu
+        window.FirebaseServices = { auth, db, doc, onSnapshot, setDoc, signInAnonymously, onAuthStateChanged };
+    </script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
+        const { auth, db, doc, onSnapshot, setDoc, signInAnonymously, onAuthStateChanged } = window.FirebaseServices;
 
-        // =========================================================================
-        // --- DATA OBCHODNÍKŮ ---
-        // Chcete-li změnit výsledky pro všechny, upravte tento seznam a uložte soubor.
-        // =========================================================================
+        // ID aplikace pro databázi
+        const APP_DB_ID = 'view-cz-soutez-2026';
+
+        // Výchozí data obchodníků
         const INITIAL_DATA = [
-            { id: '1', name: 'Jan Novák', nfc: 8, rev: 145000 },
-            { id: '2', name: 'Petr Svoboda', nfc: 4, rev: 45000 },
-            { id: '3', name: 'Lucie Černá', nfc: 12, rev: 210000 },
-            { id: '4', name: 'Karel Dvořák', nfc: 6, rev: 120000 },
+            { id: '1', name: 'Jan Novák', nfc: 0, rev: 0 },
+            { id: '2', name: 'Petr Svoboda', nfc: 0, rev: 0 },
+            { id: '3', name: 'Lucie Černá', nfc: 0, rev: 0 }
         ];
 
         function App() {
-            // Data v paměti pro aktuální relaci
-            const [salesData, setSalesData] = useState(INITIAL_DATA);
+            const [salesData, setSalesData] = useState([]);
             const [view, setView] = useState('board'); // 'board' nebo 'rules'
             const [isAdmin, setIsAdmin] = useState(false);
             const [adminPin, setAdminPin] = useState('');
             const [showPinModal, setShowPinModal] = useState(false);
             const [pinError, setPinError] = useState('');
+            const [isLoading, setIsLoading] = useState(true);
             const [repToDelete, setRepToDelete] = useState(null);
 
-            // Funkce pro simulaci uložení (pouze v rámci aktuálního okna prohlížeče)
+            // --- PŘIPOJENÍ K FIREBASE ---
+            useEffect(() => {
+                // Přihlášení uživatele (anonymně)
+                signInAnonymously(auth).catch(err => console.error("Chyba přihlášení:", err));
+
+                const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        // Připojení k dokumentu s daty
+                        const docRef = doc(db, 'artifacts', APP_DB_ID, 'public', 'data', 'sales', 'main');
+                        
+                        const unsubscribeSnap = onSnapshot(docRef, (snap) => {
+                            if (snap.exists()) {
+                                setSalesData(snap.data().users || []);
+                            } else {
+                                // Pokud databáze neexistuje, vytvoříme ji s prázdnými daty
+                                setDoc(docRef, { users: INITIAL_DATA });
+                                setSalesData(INITIAL_DATA);
+                            }
+                            setIsLoading(false);
+                        }, (err) => {
+                            console.error("Chyba databáze:", err);
+                            setIsLoading(false);
+                        });
+                        return () => unsubscribeSnap();
+                    }
+                });
+                return () => unsubscribeAuth();
+            }, []);
+
+            // --- LOGIKA UKLÁDÁNÍ ---
+            const pushToCloud = async (newData) => {
+                setSalesData(newData);
+                try {
+                    const docRef = doc(db, 'artifacts', APP_DB_ID, 'public', 'data', 'sales', 'main');
+                    await setDoc(docRef, { users: newData });
+                } catch (err) {
+                    console.error("Zápis do cloudu selhal:", err);
+                }
+            };
+
             const updateRep = (id, field, value) => {
                 const numValue = field === 'name' ? value : Number(value);
                 const newData = salesData.map(rep => rep.id === id ? { ...rep, [field]: numValue } : rep);
-                setSalesData(newData);
+                pushToCloud(newData);
             };
 
             const addRep = () => {
                 const newRep = { id: Date.now().toString(), name: 'Nový Obchodník', nfc: 0, rev: 0 };
-                setSalesData([...salesData, newRep]);
+                pushToCloud([...salesData, newRep]);
             };
 
-            const executeDelete = () => {
+            const deleteRep = () => {
                 if (repToDelete) {
-                    setSalesData(salesData.filter(rep => rep.id !== repToDelete));
+                    pushToCloud(salesData.filter(rep => rep.id !== repToDelete));
                     setRepToDelete(null);
                 }
             };
@@ -66,150 +132,143 @@
                     setAdminPin('');
                     setPinError('');
                 } else {
-                    setPinError('Nesprávný PIN. (Zkuste 2026)');
+                    setPinError('Nesprávný PIN.');
                 }
             };
 
             // Seřazení pro žebříčky
             const sortedNFC = useMemo(() => [...salesData].sort((a, b) => b.nfc - a.nfc), [salesData]);
             const sortedRev = useMemo(() => [...salesData].sort((a, b) => b.rev - a.rev), [salesData]);
-            
-            const formatCZK = (v) => new Intl.NumberFormat('cs-CZ', { 
-                style: 'currency', 
-                currency: 'CZK', 
-                maximumFractionDigits: 0 
-            }).format(v);
+            const formatCZK = (v) => new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(v);
+
+            if (isLoading) {
+                return (
+                    <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+                        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                        <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Připojování k VIEW CZ Cloudu...</p>
+                    </div>
+                );
+            }
 
             return (
-                <div className="min-h-screen bg-slate-100 text-slate-900 font-sans pb-20">
+                <div className="min-h-screen pb-24 font-sans text-slate-900">
                     
-                    <header className="bg-white border-b border-slate-200 p-4 sticky top-0 z-30 shadow-sm">
-                        <div className="max-w-[1600px] mx-auto flex flex-wrap justify-between items-center gap-4">
+                    {/* HORNÍ LIŠTA */}
+                    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm px-4 py-3 sm:px-8">
+                        <div className="max-w-[1600px] mx-auto flex justify-between items-center">
                             <div className="flex items-center gap-4">
-                                <img src="https://viewcz.com/images/svg/head-logo.svg" alt="VIEW CZ" className="h-9 object-contain" />
+                                <img src="https://viewcz.com/images/svg/head-logo.svg" alt="VIEW CZ" className="h-8 sm:h-10" />
                                 <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
-                                <h1 className="text-xl font-bold tracking-tight text-slate-800">Průběžné výsledky</h1>
+                                <h1 className="text-lg font-black tracking-tight text-slate-800 uppercase">Průběžné výsledky</h1>
                             </div>
                             <button
                                 onClick={() => setView(view === 'board' ? 'rules' : 'board')}
-                                className={`px-6 py-2 rounded-full font-bold text-sm transition-all flex items-center gap-2 border shadow-sm hover:scale-105 active:scale-95 ${
-                                    view === 'rules' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-slate-700 border-slate-200'
+                                className={`px-6 py-2 rounded-full font-bold text-xs uppercase tracking-widest transition-all ${
+                                    view === 'rules' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                                 }`}
                             >
-                                {view === 'rules' ? '✕ Zpět na výsledky' : '📖 Pravidla a odměny'}
+                                {view === 'rules' ? '✕ Zavřít pravidla' : '📖 Pravidla a odměny'}
                             </button>
                         </div>
                     </header>
 
-                    <main className="max-w-[1600px] mx-auto p-4 sm:p-6">
+                    <main className="max-w-[1600px] mx-auto p-4 sm:p-8">
                         {view === 'rules' ? (
-                            /* SEKCE PRAVIDEL */
-                            <div className="space-y-8 animate-in fade-in duration-500">
-                                <article className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden text-sm sm:text-base">
+                            /* SEKCE PRAVIDEL (DOKUMENTY) */
+                            <div className="max-w-4xl mx-auto space-y-12 animate-in">
+                                {/* HRA O OBRAT */}
+                                <article className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
                                     <div className="bg-emerald-600 p-8 text-white">
-                                        <h2 className="text-3xl font-black mb-2">Dubnová výzva: Hra o obrat</h2>
-                                        <p className="text-emerald-100 font-bold text-lg">Období soutěže: 01. 04. – 01. 05. 2026</p>
+                                        <h2 className="text-3xl font-black mb-1">Dubnová výzva: Hra o obrat</h2>
+                                        <p className="opacity-70 font-bold uppercase tracking-widest text-[10px]">Období: 01. 04. – 01. 05. 2026</p>
                                     </div>
-                                    <div className="p-8 sm:p-12 space-y-8">
-                                        <p className="text-lg text-slate-700 leading-relaxed border-l-4 border-emerald-500 pl-6 py-2 italic">
-                                            Týme, k týdenním NFC bleskovkám přidáváme hlavní měsíční soutěž zaměřenou na váš celkový obrat a dosažení vyšších provizních hladin.
+                                    <div className="p-8 space-y-8">
+                                        <p className="text-xl text-slate-600 leading-relaxed italic border-l-4 border-emerald-500 pl-6">
+                                            Týme, tato výzva je zaměřena na váš celkový obrat a má vás motivovat k dosažení vyšších provizních hladin.
                                         </p>
                                         <section>
-                                            <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">🏆 Odměny pro TOP 3 obchodníky</h3>
-                                            <div className="overflow-x-auto rounded-xl border border-slate-100">
-                                                <table className="w-full text-left border-collapse">
-                                                    <thead className="bg-slate-50 uppercase text-[10px] font-black text-slate-500">
-                                                        <tr><th className="p-4">Umístění</th><th className="p-4">CZK</th><th className="p-4">EUR</th><th className="p-4">HUF</th></tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-100">
-                                                        <tr className="bg-amber-50/30"><td className="p-4 font-bold text-lg">🥇 1. místo</td><td className="p-4 font-black">5 000 Kč</td><td className="p-4">200 €</td><td className="p-4">77 500 HUF</td></tr>
-                                                        <tr><td className="p-4 font-bold text-lg">🥈 2. místo</td><td className="p-4 font-black">3 000 Kč</td><td className="p-4">120 €</td><td className="p-4">46 500 HUF</td></tr>
-                                                        <tr className="bg-orange-50/30"><td className="p-4 font-bold text-lg">🥉 3. místo</td><td className="p-4 font-black">1 000 Kč</td><td className="p-4">40 €</td><td className="p-4">15 500 HUF</td></tr>
-                                                    </tbody>
-                                                </table>
+                                            <h3 className="text-lg font-black mb-4 uppercase tracking-tighter text-slate-800">🏆 Odměny pro TOP 3 obchodníky</h3>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                                                <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100">
+                                                    <span className="text-4xl block mb-2">🥇</span>
+                                                    <span className="block font-black text-2xl text-amber-800 uppercase">5 000 Kč</span>
+                                                </div>
+                                                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200">
+                                                    <span className="text-4xl block mb-2">🥈</span>
+                                                    <span className="block font-black text-2xl text-slate-800 uppercase">3 000 Kč</span>
+                                                </div>
+                                                <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100">
+                                                    <span className="text-4xl block mb-2">🥉</span>
+                                                    <span className="block font-black text-2xl text-orange-800 uppercase">1 000 Kč</span>
+                                                </div>
                                             </div>
                                         </section>
-                                        <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                            <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100">
-                                                <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">🎯 Pravidla a podmínky</h3>
-                                                <ul className="space-y-4 text-slate-700">
-                                                    <li><strong>Období:</strong> Všechny objednávky od pondělí 01. 04. do pátku 01. 05. 2026.</li>
-                                                    <li><strong>Kvalifikace:</strong> Nutný minimální obrat <strong>50 000 Kč</strong> / 2 000 € / 775 000 HUF.</li>
-                                                </ul>
-                                            </div>
-                                            <div className="bg-emerald-600 p-8 rounded-2xl text-white shadow-lg shadow-emerald-200">
-                                                <h3 className="text-xl font-black mb-4">🚀 Hlavní meta: Provize 25 %</h3>
-                                                <p className="">Při překonání obratu <strong>250 000 Kč</strong> / 10 000 € / 3 875 000 HUF dochází k navýšení vaší provize z 20 % na 25 %.</p>
-                                            </div>
-                                        </section>
-                                        <div className="text-center py-6 text-slate-400 font-bold text-xl">Šlápněte do toho, jdeme na to! 💪😎</div>
+                                        <div className="bg-emerald-600 text-white p-8 rounded-[2rem] shadow-lg shadow-emerald-100">
+                                            <h3 className="text-xl font-black mb-2 uppercase">🚀 HLAVNÍ META: PROVIZE 25 %</h3>
+                                            <p className="text-lg opacity-90 leading-snug">Při překonání obratu <strong>250 000 Kč</strong> získáte navýšení vaší provize z 20 % na 25 %!</p>
+                                        </div>
                                     </div>
                                 </article>
 
-                                <article className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
+                                {/* NFC KRÁL */}
+                                <article className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
                                     <div className="bg-blue-700 p-8 text-white">
-                                        <h2 className="text-3xl font-black mb-2">Akční plán: NFC Král týdne</h2>
-                                        <p className="text-blue-100 font-bold text-lg">Duben - Startujeme od 13.04.2026</p>
+                                        <h2 className="text-3xl font-black mb-1">NFC Král týdne</h2>
+                                        <p className="opacity-70 font-bold uppercase tracking-widest text-[10px]">Startujeme od 13.04.2026</p>
                                     </div>
-                                    <div className="p-8 sm:p-12 space-y-8">
-                                        <p className="text-lg text-slate-700 leading-relaxed">Rychlá a přímočará bleskovka zaměřená na naše NFC produkty. Pravidla jsou jednoduchá, odměny okamžité.</p>
-                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                            <section className="space-y-4">
-                                                <div className="bg-blue-50 border-l-4 border-blue-600 p-4 font-bold text-blue-900">Cíl: Prodat nejvíce NFC kusů za týden.</div>
-                                                <div className="space-y-2 text-sm">
-                                                  <div className="p-3 bg-slate-50 rounded-lg"><strong>Pravidlo:</strong> Nejvyšší počet vyhrává kolo.</div>
-                                                  <div className="p-3 bg-slate-50 rounded-lg"><strong>Kvalifikace:</strong> Minimum 6 kusů za týden.</div>
-                                                  <div className="p-3 bg-blue-100 rounded-lg font-bold"><strong>Odměna:</strong> 1 000 Kč / 40 € / 15 500 HUF.</div>
-                                                </div>
-                                            </section>
-                                            <section>
-                                                <h3 className="font-bold mb-4">📅 Harmonogram kol</h3>
-                                                <table className="w-full text-sm border-collapse border border-slate-100 rounded-lg overflow-hidden">
-                                                    <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
-                                                        <tr><th className="p-3">Kolo</th><th className="p-3">Období</th><th className="p-3">Odměna</th></tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-100 text-sm sm:text-base">
-                                                        <tr><td className="p-3 font-bold">1. kolo</td><td className="p-3">13. 4. – 19. 4.</td><td className="p-3 font-bold">1 000 Kč</td></tr>
-                                                        <tr><td className="p-3 font-bold">2. kolo</td><td className="p-3">20. 4. – 26. 4.</td><td className="p-3 font-bold">1 000 Kč</td></tr>
-                                                        <tr className="bg-blue-50 font-bold"><td className="p-3 text-blue-700">3. kolo</td><td className="p-3 text-blue-700">27. 4. – 30. 4.</td><td className="p-3 text-blue-700">1 000 Kč</td></tr>
-                                                    </tbody>
-                                                </table>
-                                            </section>
+                                    <div className="p-8 space-y-6">
+                                        <div className="bg-blue-50 border-l-4 border-blue-600 p-6 rounded-r-3xl">
+                                            <h3 className="font-black text-blue-900 text-sm uppercase tracking-widest mb-2">Cíl soutěže</h3>
+                                            <p className="text-blue-800 text-lg font-bold">Prodat v daném týdnu nejvíce kusů NFC produktů (karty, stojánky, plakety).</p>
                                         </div>
-                                        <div className="text-center py-4 text-2xl font-black text-blue-600 italic">Startujeme v pondělí 13. dubna! 🔥</div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            <div className="space-y-4">
+                                                <p className="text-slate-600 font-medium">Kvalifikace: <strong>Minimálně 6 ks</strong> za týden pro odemčení výhry.</p>
+                                                <p className="text-slate-600 font-medium text-blue-600">Odměna: <strong>1 000 Kč pro vítěze týdne.</strong></p>
+                                            </div>
+                                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200">
+                                                <h3 className="font-black text-xs uppercase tracking-widest mb-4">📅 Harmonogram kol</h3>
+                                                <div className="space-y-2 text-sm">
+                                                    <div className="flex justify-between p-2 border-b border-white"><span>1. kolo</span><span className="font-bold">13.4. - 19.4.</span></div>
+                                                    <div className="flex justify-between p-2 border-b border-white"><span>2. kolo</span><span className="font-bold">20.4. - 26.4.</span></div>
+                                                    <div className="flex justify-between p-2 font-bold text-blue-600 uppercase italic"><span>3. kolo</span><span>27.4. - 30.4.</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </article>
                             </div>
                         ) : (
-                            /* ŽEBŘÍČKY VÝSLEDKŮ */
-                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 animate-in fade-in duration-500">
-                                {/* NFC BOARD */}
-                                <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-lg flex flex-col">
-                                    <div className="bg-gradient-to-r from-blue-700 to-blue-500 p-6 text-white flex justify-between items-center">
+                            /* ŽEBŘÍČKY (BOARDS) */
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-10 animate-in">
+                                {/* BOARD NFC */}
+                                <section className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 flex flex-col transition-all hover:shadow-blue-900/5">
+                                    <div className="bg-gradient-to-r from-blue-800 to-blue-600 p-8 sm:p-10 text-white flex justify-between items-center">
                                         <div>
-                                            <h2 className="text-xl font-black uppercase tracking-tight">🏆 NFC Král týdne</h2>
-                                            <p className="text-blue-100 text-[10px] font-bold uppercase tracking-widest mt-0.5">Týdenní prodeje</p>
+                                            <h2 className="text-2xl font-black uppercase tracking-tighter italic">🏆 NFC Král</h2>
+                                            <p className="text-blue-100 text-[9px] font-bold uppercase tracking-[0.3em] mt-2">Týdenní stav kusů</p>
                                         </div>
-                                        <span className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest">MIN 6 KS</span>
+                                        <div className="bg-white/20 px-5 py-2 rounded-full text-[10px] font-black backdrop-blur-md uppercase tracking-widest">Target: 6+</div>
                                     </div>
                                     <div className="divide-y divide-slate-100 flex-grow">
                                         {sortedNFC.map((rep, index) => {
                                             const isQual = rep.nfc >= 6;
                                             const maxN = Math.max(...salesData.map(r => r.nfc), 10);
-                                            const progress = (rep.nfc / maxN) * 100;
                                             return (
-                                                <div key={`nfc-${rep.id}`} className={`p-5 flex items-center gap-4 ${index === 0 ? 'bg-blue-50/50' : 'hover:bg-slate-50/50 transition-colors'}`}>
-                                                    <div className="w-8 text-center font-black text-slate-300 text-lg">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}</div>
+                                                <div key={`nfc-${rep.id}`} className={`p-8 flex items-center gap-8 transition-all ${index === 0 ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
+                                                    <div className={`w-14 text-center font-black text-3xl ${index < 3 ? 'text-slate-800' : 'text-slate-200'}`}>
+                                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                                                    </div>
                                                     <div className="flex-grow">
-                                                        <div className="flex justify-between font-bold mb-1">
-                                                            <span className="text-slate-800 text-lg">{rep.name}</span>
-                                                            <span className="text-blue-600 text-2xl font-black leading-none">{rep.nfc}</span>
+                                                        <div className="flex justify-between font-black text-xl mb-2 items-baseline">
+                                                            <span className="text-slate-700">{rep.name}</span>
+                                                            <span className="text-blue-600 text-4xl italic tracking-tighter">{rep.nfc}</span>
                                                         </div>
-                                                        <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                                            <div className={`h-full transition-all duration-1000 ${isQual ? 'bg-blue-600' : 'bg-slate-300'}`} style={{ width: `${progress}%` }}></div>
+                                                        <div className="h-4 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200">
+                                                            <div className={`h-full transition-all duration-1000 ease-out ${isQual ? 'bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.4)]' : 'bg-slate-300'}`} style={{ width: `${(rep.nfc / maxN) * 100}%` }}></div>
                                                         </div>
-                                                        <div className={`text-[10px] font-black uppercase mt-1.5 tracking-wider ${isQual ? 'text-emerald-600' : 'text-rose-500'}`}>
-                                                            {isQual ? '✓ Kvalifikován' : `Chybí ${6 - rep.nfc} ks`}
+                                                        <div className={`text-[9px] font-black uppercase mt-3 tracking-widest flex justify-between ${isQual ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                                            <span>{isQual ? '✓ Kvalifikace splněna' : `Chybí ${6 - rep.nfc} ks`}</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -218,14 +277,14 @@
                                     </div>
                                 </section>
 
-                                {/* REVENUE BOARD */}
-                                <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-lg flex flex-col">
-                                    <div className="bg-gradient-to-r from-emerald-700 to-emerald-500 p-6 text-white flex justify-between items-center">
+                                {/* BOARD OBRAT */}
+                                <section className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 flex flex-col transition-all hover:shadow-emerald-900/5">
+                                    <div className="bg-gradient-to-r from-emerald-800 to-emerald-600 p-8 sm:p-10 text-white flex justify-between items-center">
                                         <div>
-                                            <h2 className="text-xl font-black uppercase tracking-tight">🎯 Hra o obrat</h2>
-                                            <p className="text-emerald-100 text-[10px] font-bold uppercase tracking-widest mt-0.5">Měsíční progres</p>
+                                            <h2 className="text-2xl font-black uppercase tracking-tighter italic">🎯 Hra o obrat</h2>
+                                            <p className="text-emerald-100 text-[9px] font-bold uppercase tracking-[0.3em] mt-2">Měsíční progres</p>
                                         </div>
-                                        <span className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest">CÍL 250K</span>
+                                        <div className="bg-white/20 px-5 py-2 rounded-full text-[10px] font-black backdrop-blur-md uppercase tracking-widest">Cíl: 250k</div>
                                     </div>
                                     <div className="divide-y divide-slate-100 flex-grow">
                                         {sortedRev.map((rep, index) => {
@@ -233,19 +292,21 @@
                                             const isBonus = rep.rev >= 250000;
                                             const progress = Math.min((rep.rev / 250000) * 100, 100);
                                             return (
-                                                <div key={`rev-${rep.id}`} className={`p-5 flex items-center gap-4 ${index === 0 ? 'bg-emerald-50/50' : 'hover:bg-slate-50/50 transition-colors'}`}>
-                                                    <div className="w-8 text-center font-black text-slate-300 text-lg">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}</div>
+                                                <div key={`rev-${rep.id}`} className={`p-8 flex items-center gap-8 transition-all ${index === 0 ? 'bg-emerald-50/50' : 'hover:bg-slate-50'}`}>
+                                                    <div className={`w-14 text-center font-black text-3xl ${index < 3 ? 'text-slate-800' : 'text-slate-200'}`}>
+                                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                                                    </div>
                                                     <div className="flex-grow">
-                                                        <div className="flex justify-between font-bold mb-1">
-                                                            <span className="text-slate-800 text-lg">{rep.name}</span>
-                                                            <span className="text-emerald-600 text-xl font-black leading-none">{formatCZK(rep.rev)}</span>
+                                                        <div className="flex justify-between font-black text-xl mb-2 items-baseline">
+                                                            <span className="text-slate-700">{rep.name}</span>
+                                                            <span className="text-emerald-600 text-3xl italic tracking-tighter">{formatCZK(rep.rev)}</span>
                                                         </div>
-                                                        <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                                            <div className={`h-full transition-all duration-1000 ${isBonus ? 'bg-emerald-500' : 'bg-emerald-400'}`} style={{ width: `${progress}%` }}></div>
+                                                        <div className="h-4 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200">
+                                                            <div className={`h-full transition-all duration-1000 ease-out ${isBonus ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-emerald-400'}`} style={{ width: `${progress}%` }}></div>
                                                         </div>
-                                                        <div className="flex justify-between text-[10px] font-black uppercase mt-1.5 tracking-wider">
-                                                            <span className={isQual ? 'text-emerald-600' : 'text-rose-500'}>{isBonus ? '✨ 25% Provize!' : isQual ? '✓ Kvalifikován' : '⚠️ Pod hranicí 50k'}</span>
-                                                            <span className="text-slate-400">Target 250k</span>
+                                                        <div className="flex justify-between text-[9px] font-black uppercase mt-3 tracking-widest">
+                                                            <span className={isQual ? 'text-emerald-600' : 'text-rose-500'}>{isBonus ? '✨ PROVIZE 25%!' : isQual ? '✓ Kvalifikace (50k+)' : '⚠️ Pod hranicí'}</span>
+                                                            <span className="text-slate-400 italic">Target 250 000 Kč</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -257,90 +318,86 @@
                         )}
                     </main>
 
-                    {/* ADMIN OVLÁDÁNÍ */}
+                    {/* TLAČÍTKO PRO ADMINA */}
                     <button 
                         onClick={() => isAdmin ? setIsAdmin(false) : setShowPinModal(true)}
-                        className={`fixed bottom-6 right-6 px-6 py-3 rounded-full font-bold shadow-xl z-50 transition-all border ${
-                            isAdmin ? 'bg-rose-600 text-white border-rose-700' : 'bg-white text-slate-700 border-slate-200 hover:scale-110 active:scale-90'
+                        className={`fixed bottom-8 right-8 px-10 py-5 rounded-full font-black shadow-2xl z-50 transition-all border tracking-[0.2em] uppercase text-[10px] ${
+                            isAdmin ? 'bg-rose-600 text-white border-rose-700 shadow-rose-200' : 'bg-white text-slate-800 border-slate-200 hover:scale-110 active:scale-90 shadow-slate-200'
                         }`}
                     >
-                        {isAdmin ? '✕ Zavřít administraci' : '⚙️ Upravit výsledky'}
+                        {isAdmin ? '✕ Zavřít správu' : '⚙️ Upravit výsledky'}
                     </button>
 
-                    {/* MODALY */}
+                    {/* MODAL PIN */}
                     {showPinModal && (
-                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
-                            <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in duration-200 border border-slate-200">
-                                <h3 className="text-lg font-bold mb-4">Správa nástěnky</h3>
+                        <div className="fixed inset-0 bg-slate-900/90 flex items-center justify-center z-[100] backdrop-blur-md p-4">
+                            <div className="bg-white p-12 rounded-[3rem] w-full max-w-sm shadow-2xl border border-slate-200 text-center animate-in">
+                                <h3 className="text-xl font-black mb-8 uppercase tracking-tighter text-slate-800">Autorizace</h3>
                                 <form onSubmit={handlePinSubmit}>
                                     <input 
                                         type="password" 
                                         value={adminPin} 
                                         onChange={(e) => {setAdminPin(e.target.value); setPinError('');}} 
-                                        placeholder="PIN (2026)" 
-                                        className="w-full p-3 mb-2 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                                        placeholder="Zadejte PIN" 
+                                        className="w-full p-6 mb-4 bg-slate-50 border-4 border-slate-100 rounded-3xl font-black text-center text-3xl focus:ring-8 focus:ring-blue-500/10 focus:border-blue-600 outline-none transition-all shadow-inner uppercase" 
                                         autoFocus 
                                     />
-                                    {pinError && <div className="text-rose-500 text-xs font-bold mb-4">{pinError}</div>}
-                                    <div className="flex gap-3 justify-end font-bold uppercase text-[10px] tracking-widest">
-                                        <button type="button" onClick={() => setShowPinModal(false)} className="px-4 py-2 text-slate-400">Zrušit</button>
-                                        <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-xl">Vstoupit</button>
+                                    {pinError && <div className="text-rose-600 text-sm font-bold mb-6 italic">{pinError}</div>}
+                                    <div className="flex gap-4 font-black uppercase text-[10px] tracking-[0.2em] pt-4">
+                                        <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-5 text-slate-400 hover:text-slate-600 transition-colors uppercase">Zrušit</button>
+                                        <button type="submit" className="flex-1 py-5 bg-blue-600 text-white rounded-3xl shadow-xl shadow-blue-200">Vstoupit</button>
                                     </div>
                                 </form>
                             </div>
                         </div>
                     )}
 
-                    {repToDelete && (
-                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[110] p-4 backdrop-blur-sm text-sm">
-                            <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl border border-slate-200">
-                                <h3 className="text-lg font-bold mb-6">Odstranit obchodníka?</h3>
-                                <div className="flex gap-3 justify-end font-black uppercase text-[10px] tracking-widest">
-                                    <button onClick={() => setRepToDelete(null)} className="px-4 py-2 text-slate-400">Zpět</button>
-                                    <button onClick={executeDelete} className="px-6 py-2 bg-rose-600 text-white rounded-xl shadow-md">Smazat</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* EDITOR VÝSLEDKŮ (DRAWER) */}
+                    {/* EDITOR DRAWER */}
                     {isAdmin && (
-                        <div className="fixed bottom-0 left-0 right-0 h-[50vh] bg-white border-t border-slate-200 p-6 overflow-y-auto z-40 shadow-2xl animate-in slide-in-from-bottom duration-300">
+                        <div className="fixed bottom-0 left-0 right-0 h-[70vh] bg-white border-t-4 border-slate-200 p-8 sm:p-12 overflow-y-auto z-40 shadow-[0_-30px_60px_rgba(0,0,0,0.15)] rounded-t-[4rem] animate-in">
                             <div className="max-w-[1600px] mx-auto">
-                                <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                                    <div className="flex items-center gap-4">
-                                        <h2 className="text-xl font-black uppercase tracking-tighter text-slate-800">⚙️ Editor nástěnky</h2>
-                                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded font-black uppercase tracking-wider">Manuální režim</span>
-                                    </div>
-                                    <button onClick={addRep} className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest shadow-md transition-transform active:scale-95 hover:bg-emerald-700">+ Přidat obchodníka</button>
+                                <div className="flex flex-wrap justify-between items-center mb-10 gap-6 border-b-2 border-slate-100 pb-8">
+                                    <h2 className="text-3xl font-black uppercase tracking-tighter italic text-slate-800">⚙️ Editor průběžných výsledků</h2>
+                                    <button onClick={addRep} className="px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-emerald-200 transition-all hover:bg-emerald-700 hover:-translate-y-1">+ Přidat obchodníka</button>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                                     {salesData.map(rep => (
-                                        <div key={`admin-${rep.id}`} className="bg-slate-50 p-4 rounded-xl border border-slate-200 relative group">
-                                            <button onClick={() => setRepToDelete(rep.id)} className="absolute top-2 right-2 text-rose-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity p-2">✕</button>
-                                            <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 tracking-widest">Jméno</label>
-                                            <input type="text" value={rep.name} onChange={(e) => updateRep(rep.id, 'name', e.target.value)} className="w-full p-2 mb-3 bg-white border border-slate-200 rounded text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
-                                            <div className="grid grid-cols-2 gap-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                                        <div key={`admin-${rep.id}`} className="bg-slate-50 p-8 rounded-[2.5rem] border-2 border-slate-100 relative transition-all hover:bg-white hover:border-blue-300 group">
+                                            <button onClick={() => setRepToDelete(rep.id)} className="absolute top-6 right-6 text-rose-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:text-rose-600 font-bold text-xl">✕</button>
+                                            <div className="space-y-6">
                                                 <div>
-                                                    <span className="block mb-1 text-blue-500">NFC (ks)</span>
-                                                    <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-1.5 border border-slate-200 rounded focus:ring-2 focus:ring-blue-500 outline-none" />
+                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-[0.1em]">Jméno</label>
+                                                    <input type="text" value={rep.name} onChange={(e) => updateRep(rep.id, 'name', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-blue-500 outline-none transition-all shadow-inner" />
                                                 </div>
-                                                <div>
-                                                    <span className="block mb-1 text-emerald-500">Obrat</span>
-                                                    <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full p-1.5 border border-slate-200 rounded focus:ring-2 focus:ring-blue-500 outline-none" />
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="text-[10px] font-black uppercase text-blue-500 block mb-2 tracking-[0.1em]">NFC (ks)</label>
+                                                        <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-blue-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat</label>
+                                                        <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                <div className="mt-10 p-6 bg-slate-900 rounded-2xl text-white">
-                                    <h3 className="font-bold mb-2">💡 Tip pro trvalé uložení na GitHub:</h3>
-                                    <p className="text-sm text-slate-400 mb-4">V "Manuálním režimu" se změny ukládají jen ve vašem prohlížeči. Pokud chcete změnu publikovat pro všechny, zkopírujte si tento kód a nahraďte jím proměnnou <code>INITIAL_DATA</code> v souboru <code>index.html</code>:</p>
-                                    <pre className="bg-black/50 p-4 rounded-xl text-[10px] font-mono overflow-x-auto select-all">
-                                        {`const INITIAL_DATA = ${JSON.stringify(salesData, null, 4)};`}
-                                    </pre>
+                                <div className="h-32" />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL MAZÁNÍ */}
+                    {repToDelete && (
+                        <div className="fixed inset-0 bg-slate-900/90 flex items-center justify-center z-[110] p-4 backdrop-blur-md">
+                            <div className="bg-white p-10 rounded-[3rem] w-full max-w-sm shadow-2xl text-center border border-slate-200">
+                                <h3 className="text-2xl font-black mb-4 text-slate-800 uppercase tracking-tighter">Smazat?</h3>
+                                <p className="text-slate-500 mb-10 font-medium">Opravdu chcete obchodníka trvale odstranit?</p>
+                                <div className="flex gap-4 font-black uppercase text-[10px] tracking-widest">
+                                    <button onClick={() => setRepToDelete(null)} className="flex-1 py-5 text-slate-400 hover:text-slate-600 transition-colors">Zrušit</button>
+                                    <button onClick={deleteRep} className="flex-1 py-5 bg-rose-600 text-white rounded-[1.5rem] shadow-xl shadow-rose-200 transition-transform active:scale-95">Odstranit</button>
                                 </div>
-                                <div className="h-24" />
                             </div>
                         </div>
                     )}

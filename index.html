@@ -51,9 +51,9 @@
 
         // Výchozí data obchodníků
         const INITIAL_DATA = [
-            { id: '1', name: 'Jan Novák', nfc: 0, rev: 0 },
-            { id: '2', name: 'Petr Svoboda', nfc: 0, rev: 0 },
-            { id: '3', name: 'Lucie Černá', nfc: 0, rev: 0 }
+            { id: '1', name: 'Jan Novák', nfc: 0, rev: 0, currency: 'CZK' },
+            { id: '2', name: 'Petr Svoboda', nfc: 0, rev: 0, currency: 'CZK' },
+            { id: '3', name: 'Lucie Černá', nfc: 0, rev: 0, currency: 'CZK' }
         ];
 
         function App() {
@@ -109,7 +109,7 @@
             const updateRep = (id, field, value) => {
                 // Oprava pro mazání čísel v inputu: Pokud uživatel políčko vyprázdní, uložíme '' místo vynucené 0.
                 let parsedValue = value;
-                if (field !== 'name') {
+                if (field === 'nfc' || field === 'rev') {
                     parsedValue = value === '' ? '' : Number(value);
                 }
                 const newData = salesData.map(rep => rep.id === id ? { ...rep, [field]: parsedValue } : rep);
@@ -117,7 +117,7 @@
             };
 
             const addRep = () => {
-                const newRep = { id: Date.now().toString(), name: 'Nový Obchodník', nfc: 0, rev: 0 };
+                const newRep = { id: Date.now().toString(), name: 'Nový Obchodník', nfc: 0, rev: 0, currency: 'CZK' };
                 pushToCloud([...salesData, newRep]);
             };
 
@@ -140,9 +140,17 @@
                 }
             };
 
-            // Seřazení pro žebříčky - bezpečně převádíme prázdné stringy na nuly pro matematiku
+            // Pomocná funkce pro přepočet obratu do CZK kvůli spravedlivému řazení a počítání progressu
+            const getRevInCZK = (rep) => {
+                const val = Number(rep.rev) || 0;
+                if (rep.currency === 'EUR') return val * 25;
+                if (rep.currency === 'HUF') return val / 15.5;
+                return val;
+            };
+
+            // Seřazení pro žebříčky - bezpečně převádíme na CZK pro matematiku
             const sortedNFC = useMemo(() => [...salesData].sort((a, b) => (Number(b.nfc) || 0) - (Number(a.nfc) || 0)), [salesData]);
-            const sortedRev = useMemo(() => [...salesData].sort((a, b) => (Number(b.rev) || 0) - (Number(a.rev) || 0)), [salesData]);
+            const sortedRev = useMemo(() => [...salesData].sort((a, b) => getRevInCZK(b) - getRevInCZK(a)), [salesData]);
             
             // Pomocné formátovací funkce
             const formatCZK = (v) => new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(v || 0);
@@ -463,13 +471,15 @@
                                     </div>
                                     <div className="divide-y divide-slate-100 flex-grow">
                                         {sortedRev.map((rep, index) => {
-                                            const revVal = Number(rep.rev) || 0;
-                                            const isQual = revVal >= 50000;
-                                            const hasBonus = revVal >= 250000;
-                                            // Progress bar gets filled relative to the highest seller (or at least 50k to show meaning early on)
-                                            const maxRev = Math.max(...salesData.map(r => Number(r.rev) || 0), 50000);
-                                            const progress = (revVal / maxRev) * 100;
-                                            const missingCZK = 50000 - revVal;
+                                            const revCZK = getRevInCZK(rep);
+                                            const isQual = revCZK >= 50000;
+                                            const hasBonus = revCZK >= 250000;
+                                            
+                                            const maxRev = Math.max(...salesData.map(r => getRevInCZK(r)), 50000);
+                                            const progress = (revCZK / maxRev) * 100;
+                                            const missingCZK = 50000 - revCZK;
+                                            
+                                            const currency = rep.currency || 'CZK';
 
                                             return (
                                                 <div key={`rev-${rep.id}`} className={`p-8 flex items-center gap-6 sm:gap-8 transition-all ${index === 0 ? 'bg-emerald-50/50' : 'hover:bg-slate-50'}`}>
@@ -480,16 +490,25 @@
                                                         <div className="flex justify-between font-black text-xl mb-4 items-start">
                                                             <span className="text-slate-700 pt-1">{rep.name}</span>
                                                             <div className="flex flex-col items-end gap-2">
-                                                                <div className="text-emerald-600 text-3xl sm:text-4xl italic tracking-tighter leading-none">
-                                                                    {formatCZK(revVal)}
+                                                                <div className="text-emerald-600 text-3xl sm:text-4xl italic tracking-tighter leading-none mb-1.5">
+                                                                    {currency === 'EUR' ? formatEUR(revCZK) : currency === 'HUF' ? formatHUF(revCZK) : formatCZK(revCZK)}
                                                                 </div>
                                                                 <div className="flex flex-wrap justify-end gap-2">
-                                                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
-                                                                        {formatEUR(revVal)}
-                                                                    </span>
-                                                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
-                                                                        {formatHUF(revVal)}
-                                                                    </span>
+                                                                    {currency !== 'CZK' && (
+                                                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
+                                                                            {formatCZK(revCZK)}
+                                                                        </span>
+                                                                    )}
+                                                                    {currency !== 'EUR' && (
+                                                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
+                                                                            {formatEUR(revCZK)}
+                                                                        </span>
+                                                                    )}
+                                                                    {currency !== 'HUF' && (
+                                                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
+                                                                            {formatHUF(revCZK)}
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -502,7 +521,7 @@
                                                                     ? '✓ Kvalifikace splněna | ✨ PROVIZE 25%!' 
                                                                     : isQual 
                                                                         ? '✓ Kvalifikace splněna' 
-                                                                        : `Chybí ${formatCZK(missingCZK)} do kvalifikace`}
+                                                                        : `Chybí ${formatCZK(missingCZK)} / ${formatEUR(missingCZK)} / ${formatHUF(missingCZK)} do kvalifikace`}
                                                             </span>
                                                             <span className="text-slate-400 italic hidden sm:block">Kvalifikace: 50k Kč / 2k € / 775k HUF</span>
                                                         </div>
@@ -567,14 +586,21 @@
                                                     <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-[0.1em]">Jméno</label>
                                                     <input type="text" value={rep.name} onChange={(e) => updateRep(rep.id, 'name', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-blue-500 outline-none transition-all shadow-inner" />
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div>
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div className="col-span-1">
                                                         <label className="text-[10px] font-black uppercase text-blue-500 block mb-2 tracking-[0.1em]">NFC (ks)</label>
                                                         <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-blue-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
                                                     </div>
-                                                    <div>
-                                                        <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat (Kč)</label>
-                                                        <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
+                                                    <div className="col-span-2">
+                                                        <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat</label>
+                                                        <div className="flex gap-2">
+                                                            <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full flex-1 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
+                                                            <select value={rep.currency || 'CZK'} onChange={(e) => updateRep(rep.id, 'currency', e.target.value)} className="w-24 shrink-0 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner cursor-pointer appearance-none text-center">
+                                                                <option value="CZK">Kč</option>
+                                                                <option value="EUR">€</option>
+                                                                <option value="HUF">HUF</option>
+                                                            </select>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>

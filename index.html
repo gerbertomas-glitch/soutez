@@ -21,9 +21,12 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // =========================================================================
         // --- KONFIGURACE FIREBASE ---
-        // Pokud necháte prázdné, aplikace poběží v lokálním režimu (vhodné pro testování).
-        const firebaseConfig = window.__firebase_config ? JSON.parse(window.__firebase_config) : {
+        // Chcete-li, aby výsledky viděli všichni SDÍLENĚ a data se ukládala,
+        // vložte sem své údaje z Firebase Console (https://console.firebase.google.com/)
+        // =========================================================================
+        const firebaseConfig = {
             apiKey: "",           
             authDomain: "",       
             projectId: "",        
@@ -32,24 +35,30 @@
             appId: ""
         };
         
+        // Interní ID aplikace pro Firestore (neměnit)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'view-cz-competition-2026';
+        
+        // Kontrola, zda uživatel vyplnil klíče
         const isConfigValid = !!(firebaseConfig.apiKey && firebaseConfig.projectId);
 
         let auth, db;
-        if (isConfigValid || window.__firebase_config) {
+        if (isConfigValid || typeof __firebase_config !== 'undefined') {
             try {
-                const app = initializeApp(firebaseConfig);
+                // Použijeme buď lokální config nebo ten z prostředí
+                const finalConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : firebaseConfig;
+                const app = initializeApp(finalConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
             } catch (e) {
-                console.error("Firebase initialization failed:", e);
+                console.error("Firebase inicializace selhala:", e);
             }
         }
 
+        // Export služeb pro React komponentu
         window.FirebaseServices = { 
             auth, db, appId, doc, onSnapshot, setDoc, 
             signInAnonymously, onAuthStateChanged, signInWithCustomToken,
-            isConfigValid: !!(isConfigValid || window.__firebase_config)
+            isConfigValid: (isConfigValid || typeof __firebase_config !== 'undefined')
         };
     </script>
 
@@ -61,6 +70,7 @@
             isConfigValid
         } = window.FirebaseServices || {};
 
+        // Výchozí data pro případ, že databáze ještě není naplněna nebo jsme offline
         const defaultData = [
             { id: '1', name: 'Jan Novák', nfc: 8, rev: 145000 },
             { id: '2', name: 'Petr Svoboda', nfc: 4, rev: 45000 },
@@ -71,7 +81,7 @@
         function App() {
             const [user, setUser] = useState(null);
             const [salesData, setSalesData] = useState(defaultData);
-            const [view, setView] = useState('board');
+            const [view, setView] = useState('board'); // 'board' nebo 'rules'
             const [isAdmin, setIsAdmin] = useState(false);
             const [adminPin, setAdminPin] = useState('');
             const [showPinModal, setShowPinModal] = useState(false);
@@ -79,7 +89,7 @@
             const [isLoading, setIsLoading] = useState(isConfigValid); 
             const [repToDelete, setRepToDelete] = useState(null);
 
-            // 1. Auth a inicializace
+            // 1. Autentizace (pouze pro Online režim)
             useEffect(() => {
                 if (!isConfigValid || !auth) {
                     setIsLoading(false);
@@ -94,7 +104,7 @@
                             await signInAnonymously(auth);
                         }
                     } catch (error) {
-                        console.error("Auth failed:", error);
+                        console.error("Chyba přihlášení:", error);
                         setIsLoading(false);
                     }
                 };
@@ -104,7 +114,7 @@
                 return () => unsubscribe();
             }, []);
 
-            // 2. Sync s databází (pokud existuje)
+            // 2. Synchronizace dat (pouze pro Online režim)
             useEffect(() => {
                 if (!isConfigValid || !user || !db) return;
                 
@@ -115,24 +125,28 @@
                     if (docSnap.exists()) {
                         setSalesData(docSnap.data().users || []);
                     } else {
+                        // První inicializace databáze
                         setDoc(docRef, { users: defaultData });
                         setSalesData(defaultData);
                     }
                     setIsLoading(false);
                 }, (err) => {
-                    console.error("Firestore error:", err);
+                    console.error("Chyba Firestore:", err);
                     setIsLoading(false);
                 });
 
                 return () => unsubscribe();
             }, [user]);
 
+            // Funkce pro uložení změn
             const saveToDb = async (newData) => {
                 if (!isConfigValid || !user || !db) return;
                 try {
                     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sales_competition', 'main_state');
                     await setDoc(docRef, { users: newData });
-                } catch (e) { console.error("Save failed:", e); }
+                } catch (e) { 
+                    console.error("Uložení selhalo:", e); 
+                }
             };
 
             const handlePinSubmit = (e) => {
@@ -141,6 +155,7 @@
                     setIsAdmin(true);
                     setShowPinModal(false);
                     setAdminPin('');
+                    setPinError('');
                 } else {
                     setPinError('Nesprávný PIN. (Zkuste 2026)');
                 }
@@ -150,7 +165,7 @@
                 const numValue = field === 'name' ? value : Number(value);
                 const newData = salesData.map(rep => rep.id === id ? { ...rep, [field]: numValue } : rep);
                 setSalesData(newData);
-                saveToDb(newData);
+                saveToDb(newData); // Zkusí uložit do DB, pokud jsme online
             };
 
             const addRep = () => {
@@ -169,24 +184,31 @@
                 }
             };
 
+            // Seřazení dat pro žebříčky
             const sortedNFC = useMemo(() => [...salesData].sort((a, b) => b.nfc - a.nfc), [salesData]);
             const sortedRev = useMemo(() => [...salesData].sort((a, b) => b.rev - a.rev), [salesData]);
-            const formatCZK = (v) => new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(v);
+            
+            const formatCZK = (v) => new Intl.NumberFormat('cs-CZ', { 
+                style: 'currency', 
+                currency: 'CZK', 
+                maximumFractionDigits: 0 
+            }).format(v);
 
             if (isLoading) {
                 return (
-                    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-600">
-                        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
-                        <p className="text-xl font-medium">Načítání...</p>
+                    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                        <p className="text-slate-500 font-medium">Načítání výsledků...</p>
                     </div>
                 );
             }
 
             return (
                 <div className="min-h-screen bg-slate-100 text-slate-900 font-sans pb-20">
+                    {/* INFO O REŽIMU */}
                     {!isConfigValid && (
                         <div className="bg-amber-500 text-white text-[10px] font-black uppercase tracking-widest text-center py-1 sticky top-0 z-[100]">
-                            Režim offline: Data se ukládají pouze v této relaci.
+                            Režim Offline: Změny uvidíte jen vy (pro sdílení vyplňte firebaseConfig).
                         </div>
                     )}
 
@@ -199,7 +221,7 @@
                             </div>
                             <button
                                 onClick={() => setView(view === 'board' ? 'rules' : 'board')}
-                                className={`px-6 py-2 rounded-full font-bold text-sm transition-all flex items-center gap-2 border shadow-sm ${
+                                className={`px-6 py-2 rounded-full font-bold text-sm transition-all flex items-center gap-2 border shadow-sm hover:scale-105 active:scale-95 ${
                                     view === 'rules' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-slate-700 border-slate-200'
                                 }`}
                             >
@@ -210,17 +232,17 @@
 
                     <main className="max-w-[1600px] mx-auto p-4 sm:p-6">
                         {view === 'rules' ? (
+                            /* SEKCE PRAVIDEL */
                             <div className="space-y-8 animate-in fade-in duration-500">
-                                {/* Dokument: Hra o obrat */}
                                 <article className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
                                     <div className="bg-emerald-600 p-8 text-white">
                                         <h2 className="text-3xl font-black mb-2">Dubnová výzva: Hra o obrat</h2>
                                         <p className="text-emerald-100 font-bold text-lg">Období soutěže: 01. 04. – 01. 05. 2026</p>
                                     </div>
                                     <div className="p-8 sm:p-12 space-y-8">
-                                        <p className="text-lg text-slate-700 leading-relaxed border-l-4 border-emerald-500 pl-6 py-2 italic">
-                                            Týme, k týdenním NFC bleskovkám přidáváme hlavní měsíční soutěž zaměřenou na celkový obrat.
-                                        </p>
+                                        <div className="text-lg text-slate-700 leading-relaxed border-l-4 border-emerald-500 pl-6 py-2 italic">
+                                            Týme, k týdenním NFC bleskovkám přidáváme hlavní měsíční soutěž zaměřenou na celkový obrat a dosažení vyšších provizních hladin.
+                                        </div>
                                         <section>
                                             <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">🏆 Odměny pro TOP 3 obchodníky</h3>
                                             <div className="overflow-x-auto rounded-xl border border-slate-100">
@@ -228,10 +250,10 @@
                                                     <thead className="bg-slate-50 uppercase text-[10px] font-black text-slate-500">
                                                         <tr><th className="p-4">Umístění</th><th className="p-4">CZK</th><th className="p-4">EUR</th><th className="p-4">HUF</th></tr>
                                                     </thead>
-                                                    <tbody className="divide-y divide-slate-100">
-                                                        <tr className="bg-amber-50/30"><td className="p-4 font-bold text-lg">🥇 1. místo</td><td className="p-4 font-black">5 000 Kč</td><td className="p-4">200 €</td><td className="p-4">77 500 HUF</td></tr>
-                                                        <tr><td className="p-4 font-bold text-lg">🥈 2. místo</td><td className="p-4 font-black">3 000 Kč</td><td className="p-4">120 €</td><td className="p-4">46 500 HUF</td></tr>
-                                                        <tr className="bg-orange-50/30"><td className="p-4 font-bold text-lg">🥉 3. místo</td><td className="p-4 font-black">1 000 Kč</td><td className="p-4">40 €</td><td className="p-4">15 500 HUF</td></tr>
+                                                    <tbody className="divide-y divide-slate-100 text-sm sm:text-base">
+                                                        <tr className="bg-amber-50/30"><td className="p-4 font-bold">🥇 1. místo</td><td className="p-4 font-black">5 000 Kč</td><td className="p-4">200 €</td><td className="p-4">77 500 HUF</td></tr>
+                                                        <tr><td className="p-4 font-bold">🥈 2. místo</td><td className="p-4 font-black">3 000 Kč</td><td className="p-4">120 €</td><td className="p-4">46 500 HUF</td></tr>
+                                                        <tr className="bg-orange-50/30"><td className="p-4 font-bold">🥉 3. místo</td><td className="p-4 font-black">1 000 Kč</td><td className="p-4">40 €</td><td className="p-4">15 500 HUF</td></tr>
                                                     </tbody>
                                                 </table>
                                             </div>
@@ -244,28 +266,27 @@
                                                     <li><strong>Kvalifikace:</strong> Nutný minimální obrat <strong>50 000 Kč</strong> / 2 000 € / 775 000 HUF.</li>
                                                 </ul>
                                             </div>
-                                            <div className="bg-emerald-600 p-8 rounded-2xl text-white shadow-lg">
+                                            <div className="bg-emerald-600 p-8 rounded-2xl text-white shadow-lg shadow-emerald-200">
                                                 <h3 className="text-xl font-black mb-4">🚀 Hlavní meta: Provize 25 %</h3>
-                                                <p className="text-sm">Při překonání obratu 250 000 Kč dochází k navýšení provize z 20 % na <strong>25 %</strong>.</p>
+                                                <p className="text-sm">Při překonání obratu <strong>250 000 Kč</strong> dochází k navýšení vaší provize z 20 % na 25 %.</p>
                                             </div>
                                         </section>
                                         <div className="text-center py-6 text-slate-400 font-bold text-xl">Šlápněte do toho, jdeme na to! 💪😎</div>
                                     </div>
                                 </article>
 
-                                {/* Dokument: NFC Král */}
                                 <article className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
                                     <div className="bg-blue-700 p-8 text-white">
                                         <h2 className="text-3xl font-black mb-2">Akční plán: NFC Král týdne</h2>
                                         <p className="text-blue-100 font-bold text-lg">Duben - Startujeme od 13.04.2026</p>
                                     </div>
                                     <div className="p-8 sm:p-12 space-y-8">
-                                        <p className="text-lg text-slate-700 leading-relaxed">Rychlá bleskovka zaměřená na naše NFC produkty. Pravidla jsou přímočará.</p>
+                                        <p className="text-lg text-slate-700 leading-relaxed">Rychlá a přímočará bleskovka zaměřená na naše NFC produkty. Pravidla jsou jednoduchá, odměny okamžité.</p>
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                             <section className="space-y-4">
-                                                <div className="bg-blue-50 border-l-4 border-blue-600 p-4 font-bold text-blue-900">Cíl: Prodat nejvíce NFC kusů v týdnu.</div>
+                                                <div className="bg-blue-50 border-l-4 border-blue-600 p-4 font-bold text-blue-900">Cíl: Prodat nejvíce NFC kusů za týden.</div>
                                                 <div className="space-y-2 text-sm">
-                                                  <div className="p-3 bg-slate-50 rounded-lg"><strong>Pravidlo:</strong> Absolutně nejvyšší počet vyhrává.</div>
+                                                  <div className="p-3 bg-slate-50 rounded-lg"><strong>Pravidlo:</strong> Nejvyšší počet vyhrává kolo.</div>
                                                   <div className="p-3 bg-slate-50 rounded-lg"><strong>Kvalifikace:</strong> Minimum 6 kusů za týden.</div>
                                                   <div className="p-3 bg-blue-100 rounded-lg font-bold"><strong>Odměna:</strong> 1 000 Kč / 40 € / 15 500 HUF.</div>
                                                 </div>
@@ -279,40 +300,45 @@
                                                     <tbody className="divide-y divide-slate-100">
                                                         <tr><td className="p-3 font-bold">1. kolo</td><td className="p-3">13. 4. – 19. 4.</td><td className="p-3 font-bold">1 000 Kč</td></tr>
                                                         <tr><td className="p-3 font-bold">2. kolo</td><td className="p-3">20. 4. – 26. 4.</td><td className="p-3 font-bold">1 000 Kč</td></tr>
-                                                        <tr className="bg-blue-50"><td className="p-3 font-bold text-blue-700">3. kolo</td><td className="p-3 text-blue-700">27. 4. – 30. 4.</td><td className="p-3 font-bold text-blue-700">1 000 Kč</td></tr>
+                                                        <tr className="bg-blue-50 font-bold"><td className="p-3 text-blue-700">3. kolo</td><td className="p-3 text-blue-700">27. 4. – 30. 4.</td><td className="p-3 text-blue-700">1 000 Kč</td></tr>
                                                     </tbody>
                                                 </table>
                                             </section>
                                         </div>
-                                        <div className="text-center py-4 text-2xl font-black text-blue-600 italic">Startujeme v pondělí 13. dubna! 🔥</div>
+                                        <div className="text-center py-4 text-2xl font-black text-blue-600 italic tracking-tighter">Startujeme v pondělí 13. dubna! 🔥</div>
                                     </div>
                                 </article>
                             </div>
                         ) : (
+                            /* ŽEBŘÍČKY VÝSLEDKŮ */
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 animate-in fade-in duration-500">
                                 {/* NFC BOARD */}
-                                <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-lg">
-                                    <div className="bg-blue-700 p-6 text-white flex justify-between items-center">
-                                        <h2 className="text-xl font-black uppercase tracking-tight">🏆 NFC Král týdne</h2>
+                                <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-lg flex flex-col">
+                                    <div className="bg-gradient-to-r from-blue-700 to-blue-500 p-6 text-white flex justify-between items-center">
+                                        <div>
+                                            <h2 className="text-xl font-black uppercase tracking-tight">🏆 NFC Král týdne</h2>
+                                            <p className="text-blue-100 text-[10px] font-bold uppercase tracking-widest mt-0.5">Týdenní prodeje</p>
+                                        </div>
                                         <span className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest">MIN 6 KS</span>
                                     </div>
-                                    <div className="divide-y divide-slate-100">
+                                    <div className="divide-y divide-slate-100 flex-grow">
                                         {sortedNFC.map((rep, index) => {
                                             const isQual = rep.nfc >= 6;
                                             const maxN = Math.max(...salesData.map(r => r.nfc), 10);
+                                            const progress = (rep.nfc / maxN) * 100;
                                             return (
-                                                <div key={`nfc-${rep.id}`} className={`p-5 flex items-center gap-4 ${index === 0 ? 'bg-blue-50/50' : ''}`}>
+                                                <div key={`nfc-${rep.id}`} className={`p-5 flex items-center gap-4 ${index === 0 ? 'bg-blue-50/50' : 'hover:bg-slate-50/50'}`}>
                                                     <div className="w-8 text-center font-black text-slate-300 text-lg">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}</div>
                                                     <div className="flex-grow">
                                                         <div className="flex justify-between font-bold mb-1">
                                                             <span className="text-slate-800 text-lg">{rep.name}</span>
-                                                            <span className="text-blue-600 text-2xl font-black">{rep.nfc}</span>
+                                                            <span className="text-blue-600 text-2xl font-black leading-none">{rep.nfc}</span>
                                                         </div>
                                                         <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                                            <div className={`h-full transition-all duration-1000 ${isQual ? 'bg-blue-600' : 'bg-slate-300'}`} style={{ width: `${(rep.nfc / maxN) * 100}%` }}></div>
+                                                            <div className={`h-full transition-all duration-1000 ${isQual ? 'bg-blue-600' : 'bg-slate-300'}`} style={{ width: `${progress}%` }}></div>
                                                         </div>
-                                                        <div className={`text-[10px] font-black uppercase mt-1 tracking-wider ${isQual ? 'text-emerald-600' : 'text-rose-500'}`}>
-                                                            {isQual ? '✓ Kvalifikován' : `Chybí ${6 - rep.nfc} ks`}
+                                                        <div className={`text-[10px] font-black uppercase mt-1.5 tracking-wider ${isQual ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                                            {isQual ? '✓ Kvalifikován' : `Chybí ${6 - rep.nfc} ks ke kvalifikaci`}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -322,29 +348,33 @@
                                 </section>
 
                                 {/* REVENUE BOARD */}
-                                <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-lg">
-                                    <div className="bg-emerald-600 p-6 text-white flex justify-between items-center">
-                                        <h2 className="text-xl font-black uppercase tracking-tight">🎯 Hra o obrat</h2>
+                                <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-lg flex flex-col">
+                                    <div className="bg-gradient-to-r from-emerald-700 to-emerald-500 p-6 text-white flex justify-between items-center">
+                                        <div>
+                                            <h2 className="text-xl font-black uppercase tracking-tight">🎯 Hra o obrat</h2>
+                                            <p className="text-emerald-100 text-[10px] font-bold uppercase tracking-widest mt-0.5">Měsíční progres</p>
+                                        </div>
                                         <span className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest">CÍL 250K</span>
                                     </div>
-                                    <div className="divide-y divide-slate-100">
+                                    <div className="divide-y divide-slate-100 flex-grow">
                                         {sortedRev.map((rep, index) => {
                                             const isQual = rep.rev >= 50000;
                                             const isBonus = rep.rev >= 250000;
+                                            const progress = Math.min((rep.rev / 250000) * 100, 100);
                                             return (
-                                                <div key={`rev-${rep.id}`} className={`p-5 flex items-center gap-4 ${index === 0 ? 'bg-emerald-50/50' : ''}`}>
+                                                <div key={`rev-${rep.id}`} className={`p-5 flex items-center gap-4 ${index === 0 ? 'bg-emerald-50/50' : 'hover:bg-slate-50/50'}`}>
                                                     <div className="w-8 text-center font-black text-slate-300 text-lg">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}</div>
                                                     <div className="flex-grow">
                                                         <div className="flex justify-between font-bold mb-1">
                                                             <span className="text-slate-800 text-lg">{rep.name}</span>
-                                                            <span className="text-emerald-600 text-xl font-black">{formatCZK(rep.rev)}</span>
+                                                            <span className="text-emerald-600 text-xl font-black leading-none">{formatCZK(rep.rev)}</span>
                                                         </div>
                                                         <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                                            <div className={`h-full transition-all duration-1000 ${isBonus ? 'bg-emerald-500' : 'bg-emerald-400'}`} style={{ width: `${Math.min((rep.rev / 250000) * 100, 100)}%` }}></div>
+                                                            <div className={`h-full transition-all duration-1000 ${isBonus ? 'bg-emerald-500' : 'bg-emerald-400'}`} style={{ width: `${progress}%` }}></div>
                                                         </div>
-                                                        <div className="flex justify-between text-[10px] font-black uppercase mt-1 tracking-wider">
-                                                            <span className={isQual ? 'text-emerald-600' : 'text-rose-500'}>{isBonus ? '✨ 25% Provize!' : isQual ? '✓ Kvalifikován' : '⚠️ Pod hranicí'}</span>
-                                                            <span className="text-slate-400">Target 250k</span>
+                                                        <div className="flex justify-between text-[10px] font-black uppercase mt-1.5 tracking-wider">
+                                                            <span className={isQual ? 'text-emerald-600' : 'text-rose-500'}>{isBonus ? '✨ 25% Provize Odemčena!' : isQual ? '✓ Kvalifikován' : '⚠️ Pod hranicí 50k'}</span>
+                                                            <span className="text-slate-400">Target 250 000 Kč</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -356,70 +386,81 @@
                         )}
                     </main>
 
+                    {/* ADMIN OVLÁDÁNÍ */}
                     <button 
                         onClick={() => isAdmin ? setIsAdmin(false) : setShowPinModal(true)}
-                        className={`fixed bottom-6 right-6 px-6 py-3 rounded-full font-bold shadow-lg z-50 transition-all border ${
-                            isAdmin ? 'bg-rose-600 text-white border-rose-700' : 'bg-white text-slate-700 border-slate-200 hover:scale-105 active:scale-95'
+                        className={`fixed bottom-6 right-6 px-6 py-3 rounded-full font-bold shadow-xl z-50 transition-all border ${
+                            isAdmin ? 'bg-rose-600 text-white border-rose-700' : 'bg-white text-slate-700 border-slate-200 hover:scale-110 active:scale-90 shadow-slate-200'
                         }`}
                     >
                         {isAdmin ? '✕ Zavřít administraci' : '⚙️ Spravovat výsledky'}
                     </button>
 
+                    {/* MODAL PRO PIN */}
                     {showPinModal && (
-                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
-                            <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in duration-200">
-                                <h3 className="text-lg font-bold mb-4">Administrace</h3>
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[100] backdrop-blur-sm p-4 text-sm">
+                            <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in duration-200 border border-slate-200">
+                                <h3 className="text-lg font-bold mb-4">Autorizace administrátora</h3>
                                 <form onSubmit={handlePinSubmit}>
-                                    <input type="password" value={adminPin} onChange={(e) => {setAdminPin(e.target.value); setPinError('');}} placeholder="PIN (2026)" className="w-full p-3 mb-2 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" autoFocus />
+                                    <input 
+                                        type="password" 
+                                        value={adminPin} 
+                                        onChange={(e) => {setAdminPin(e.target.value); setPinError('');}} 
+                                        placeholder="PIN (2026)" 
+                                        className="w-full p-3 mb-2 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                                        autoFocus 
+                                    />
                                     {pinError && <div className="text-rose-500 text-xs font-bold mb-4">{pinError}</div>}
-                                    <div className="flex gap-3 justify-end text-[10px] font-black uppercase tracking-widest">
+                                    <div className="flex gap-3 justify-end font-bold uppercase text-[10px] tracking-widest">
                                         <button type="button" onClick={() => setShowPinModal(false)} className="px-4 py-2 text-slate-400">Zrušit</button>
-                                        <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-xl shadow-md shadow-blue-200">Vstoupit</button>
+                                        <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 transition-transform active:scale-95">Vstoupit</button>
                                     </div>
                                 </form>
                             </div>
                         </div>
                     )}
 
+                    {/* MODAL PRO SMAZÁNÍ */}
                     {repToDelete && (
                         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[110] p-4 backdrop-blur-sm">
-                            <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl">
-                                <h3 className="text-lg font-bold mb-6">Smazat obchodníka?</h3>
-                                <div className="flex gap-3 justify-end font-black uppercase text-[10px]">
+                            <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl border border-slate-200">
+                                <h3 className="text-lg font-bold mb-6">Odstranit obchodníka?</h3>
+                                <div className="flex gap-3 justify-end font-black uppercase text-[10px] tracking-widest">
                                     <button onClick={() => setRepToDelete(null)} className="px-4 py-2 text-slate-400">Zpět</button>
-                                    <button onClick={executeDelete} className="px-6 py-2 bg-rose-600 text-white rounded-xl">Smazat</button>
+                                    <button onClick={executeDelete} className="px-6 py-2 bg-rose-600 text-white rounded-xl shadow-md">Smazat</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
+                    {/* EDITOR VÝSLEDKŮ (DRAWER) */}
                     {isAdmin && (
                         <div className="fixed bottom-0 left-0 right-0 h-[50vh] bg-white border-t border-slate-200 p-6 overflow-y-auto z-40 shadow-2xl animate-in slide-in-from-bottom duration-300">
                             <div className="max-w-[1600px] mx-auto">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h2 className="text-xl font-black uppercase tracking-tighter">⚙️ Editor výsledků</h2>
-                                    <button onClick={addRep} className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest shadow-md shadow-emerald-100">+ Přidat obchodníka</button>
+                                <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                                    <h2 className="text-xl font-black uppercase tracking-tighter text-slate-800">⚙️ Editor průběžných výsledků</h2>
+                                    <button onClick={addRep} className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest shadow-md shadow-emerald-100 transition-transform active:scale-95 hover:bg-emerald-700">+ Přidat obchodníka</button>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                                     {salesData.map(rep => (
                                         <div key={`admin-${rep.id}`} className="bg-slate-50 p-4 rounded-xl border border-slate-200 relative group">
-                                            <button onClick={() => setRepToDelete(rep.id)} className="absolute top-2 right-2 text-rose-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-                                            <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Jméno</label>
-                                            <input type="text" value={rep.name} onChange={(e) => updateRep(rep.id, 'name', e.target.value)} className="w-full p-2 mb-3 bg-white border border-slate-200 rounded text-xs font-bold outline-blue-500" />
+                                            <button onClick={() => setRepToDelete(rep.id)} className="absolute top-2 right-2 text-rose-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity p-2">✕</button>
+                                            <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Obchodník</label>
+                                            <input type="text" value={rep.name} onChange={(e) => updateRep(rep.id, 'name', e.target.value)} className="w-full p-2 mb-3 bg-white border border-slate-200 rounded text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
                                             <div className="grid grid-cols-2 gap-2 text-[10px] font-black uppercase text-slate-400">
                                                 <div>
                                                     <span className="block mb-1 text-blue-500">NFC (ks)</span>
-                                                    <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-1.5 border border-slate-200 rounded" />
+                                                    <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-1.5 border border-slate-200 rounded focus:ring-2 focus:ring-blue-500 outline-none" />
                                                 </div>
                                                 <div>
-                                                    <span className="block mb-1 text-emerald-500">Obrat</span>
-                                                    <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full p-1.5 border border-slate-200 rounded" />
+                                                    <span className="block mb-1 text-emerald-500">Obrat (Kč)</span>
+                                                    <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full p-1.5 border border-slate-200 rounded focus:ring-2 focus:ring-blue-500 outline-none" />
                                                 </div>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                <div className="h-20" />
+                                <div className="h-24" />
                             </div>
                         </div>
                     )}

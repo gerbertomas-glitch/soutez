@@ -490,7 +490,7 @@
                                                         <div className="flex justify-between font-black text-xl mb-4 items-start">
                                                             <span className="text-slate-700 pt-1">{rep.name}</span>
                                                             <div className="flex flex-col items-end gap-2">
-                                                                <div className="text-emerald-600 text-3xl sm:text-4xl italic tracking-tighter leading-none mb-1.5">
+                                                                <div className="text-emerald-600 text-2xl sm:text-3xl font-black italic tracking-tighter leading-none mb-1.5 whitespace-nowrap">
                                                                     {currency === 'EUR' ? formatEUR(revCZK) : currency === 'HUF' ? formatHUF(revCZK) : formatCZK(revCZK)}
                                                                 </div>
                                                                 <div className="flex flex-wrap justify-end gap-2">
@@ -581,26 +581,24 @@
                                     {salesData.map(rep => (
                                         <div key={`admin-${rep.id}`} className="bg-slate-50 p-8 rounded-[2.5rem] border-2 border-slate-100 relative transition-all hover:bg-white hover:border-blue-300 group">
                                             <button onClick={() => setRepToDelete(rep.id)} className="absolute top-6 right-6 text-rose-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:text-rose-600 font-bold text-xl">✕</button>
-                                            <div className="space-y-6">
+                                            <div className="space-y-4">
                                                 <div>
                                                     <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-[0.1em]">Jméno</label>
                                                     <input type="text" value={rep.name} onChange={(e) => updateRep(rep.id, 'name', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-blue-500 outline-none transition-all shadow-inner" />
                                                 </div>
-                                                <div className="grid grid-cols-3 gap-4">
-                                                    <div className="col-span-1">
-                                                        <label className="text-[10px] font-black uppercase text-blue-500 block mb-2 tracking-[0.1em]">NFC (ks)</label>
-                                                        <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-blue-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
-                                                    </div>
-                                                    <div className="col-span-2">
-                                                        <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat</label>
-                                                        <div className="flex gap-2">
-                                                            <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full flex-1 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
-                                                            <select value={rep.currency || 'CZK'} onChange={(e) => updateRep(rep.id, 'currency', e.target.value)} className="w-24 shrink-0 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner cursor-pointer appearance-none text-center">
-                                                                <option value="CZK">Kč</option>
-                                                                <option value="EUR">€</option>
-                                                                <option value="HUF">HUF</option>
-                                                            </select>
-                                                        </div>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase text-blue-500 block mb-2 tracking-[0.1em]">NFC (ks)</label>
+                                                    <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-blue-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat</label>
+                                                    <div className="flex gap-2">
+                                                        <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full flex-1 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
+                                                        <select value={rep.currency || 'CZK'} onChange={(e) => updateRep(rep.id, 'currency', e.target.value)} className="w-24 shrink-0 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner cursor-pointer appearance-none text-center">
+                                                            <option value="CZK">Kč</option>
+                                                            <option value="EUR">€</option>
+                                                            <option value="HUF">HUF</option>
+                                                        </select>
                                                     </div>
                                                 </div>
                                             </div>

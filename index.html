@@ -140,12 +140,21 @@
                 }
             };
 
-            // Pomocná funkce pro přepočet obratu do CZK kvůli spravedlivému řazení a počítání progressu
+            // Pomocná funkce pro přepočet obratu do CZK včetně DPH kvůli spravedlivému řazení a počítání progressu
             const getRevInCZK = (rep) => {
                 const val = Number(rep.rev) || 0;
-                if (rep.currency === 'EUR') return val * 25;
-                if (rep.currency === 'HUF') return val / 15.5;
-                return val;
+                const currency = rep.currency || 'CZK';
+                
+                // Přičtení lokálního DPH k základu
+                let valWithVat = val;
+                if (currency === 'CZK') valWithVat = val * 1.21; // CZ DPH 21 %
+                else if (currency === 'EUR') valWithVat = val * 1.23; // SK DPH 23 % (Slovensko od 2025)
+                else if (currency === 'HUF') valWithVat = val * 1.27; // HU DPH 27 % (Maďarsko)
+
+                // Následný převod do společné měny (CZK)
+                if (currency === 'EUR') return valWithVat * 25;
+                if (currency === 'HUF') return valWithVat / 15.5;
+                return valWithVat;
             };
 
             // Seřazení pro žebříčky - bezpečně převádíme na CZK pro matematiku
@@ -586,19 +595,21 @@
                                                     <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-[0.1em]">Jméno</label>
                                                     <input type="text" value={rep.name} onChange={(e) => updateRep(rep.id, 'name', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-blue-500 outline-none transition-all shadow-inner" />
                                                 </div>
-                                                <div>
-                                                    <label className="text-[10px] font-black uppercase text-blue-500 block mb-2 tracking-[0.1em]">NFC (ks)</label>
-                                                    <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-blue-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat</label>
-                                                    <div className="flex gap-2">
-                                                        <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full flex-1 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
-                                                        <select value={rep.currency || 'CZK'} onChange={(e) => updateRep(rep.id, 'currency', e.target.value)} className="w-24 shrink-0 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner cursor-pointer appearance-none text-center">
-                                                            <option value="CZK">Kč</option>
-                                                            <option value="EUR">€</option>
-                                                            <option value="HUF">HUF</option>
-                                                        </select>
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div className="col-span-1">
+                                                        <label className="text-[10px] font-black uppercase text-blue-500 block mb-2 tracking-[0.1em]">NFC (ks)</label>
+                                                        <input type="number" value={rep.nfc} onChange={(e) => updateRep(rep.id, 'nfc', e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-blue-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
+                                                    </div>
+                                                    <div className="col-span-2">
+                                                        <label className="text-[10px] font-black uppercase text-emerald-500 block mb-2 tracking-[0.1em]">Obrat</label>
+                                                        <div className="flex gap-2">
+                                                            <input type="number" value={rep.rev} onChange={(e) => updateRep(rep.id, 'rev', e.target.value)} className="w-full flex-1 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner" />
+                                                            <select value={rep.currency || 'CZK'} onChange={(e) => updateRep(rep.id, 'currency', e.target.value)} className="w-24 shrink-0 p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-emerald-600 focus:border-blue-500 outline-none transition-all shadow-inner cursor-pointer appearance-none text-center">
+                                                                <option value="CZK">Kč</option>
+                                                                <option value="EUR">€</option>
+                                                                <option value="HUF">HUF</option>
+                                                            </select>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>

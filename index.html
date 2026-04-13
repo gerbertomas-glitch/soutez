@@ -500,24 +500,15 @@
                                                             <span className="text-slate-700 pt-1">{rep.name}</span>
                                                             <div className="flex flex-col items-end gap-2">
                                                                 <div className="text-emerald-600 text-2xl sm:text-3xl font-black italic tracking-tighter leading-none mb-1.5 whitespace-nowrap">
-                                                                    {currency === 'EUR' ? formatEUR(revCZK) : currency === 'HUF' ? formatHUF(revCZK) : formatCZK(revCZK)}
+                                                                    {formatEUR(revCZK)}
                                                                 </div>
                                                                 <div className="flex flex-wrap justify-end gap-2">
-                                                                    {currency !== 'CZK' && (
-                                                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
-                                                                            {formatCZK(revCZK)}
-                                                                        </span>
-                                                                    )}
-                                                                    {currency !== 'EUR' && (
-                                                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
-                                                                            {formatEUR(revCZK)}
-                                                                        </span>
-                                                                    )}
-                                                                    {currency !== 'HUF' && (
-                                                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
-                                                                            {formatHUF(revCZK)}
-                                                                        </span>
-                                                                    )}
+                                                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
+                                                                        {formatCZK(revCZK)}
+                                                                    </span>
+                                                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-3 py-1 rounded-xl text-xs sm:text-sm font-black shadow-sm tracking-wide">
+                                                                        {formatHUF(revCZK)}
+                                                                    </span>
                                                                 </div>
                                                             </div>
                                                         </div>

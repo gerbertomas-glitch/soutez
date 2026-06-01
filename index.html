@@ -105,7 +105,8 @@
                 useEffect(() => {
                     if (!user) return;
                     
-                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sales_june');
+                    // OPRAVENÁ CESTA - přidáno 'main' (sudý počet segmentů)
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sales_june', 'main');
                     
                     const unsubscribeSnap = onSnapshot(docRef, (snap) => {
                         if (snap.exists()) {
@@ -138,7 +139,8 @@
                     if (newTeams !== undefined) setAvailableTeams(newTeams);
                     
                     try {
-                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sales_june');
+                        // OPRAVENÁ CESTA - přidáno 'main' (sudý počet segmentů)
+                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sales_june', 'main');
                         await setDoc(docRef, { users: newData, globalTarget: finalTarget, teams: finalTeams });
                     } catch (err) {
                         console.error("Zápis do cloudu selhal:", err);

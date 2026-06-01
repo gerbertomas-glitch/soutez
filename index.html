@@ -52,26 +52,26 @@
             const { auth, db, doc, onSnapshot, setDoc, signInAnonymously, signInWithCustomToken, onAuthStateChanged, appId } = window.FirebaseServices;
 
             const INITIAL_TEAMS = [
-                { id: 't1', name: 'Alfa', target: 20000, currency: 'EUR', country: 'CZ' },
-                { id: 't2', name: 'Beta', target: 15000, currency: 'EUR', country: 'SK' }
+                { id: 't1', name: 'Alfa', target: 500000, currency: 'CZK', country: 'CZ' },
+                { id: 't2', name: 'Beta', target: 400000, currency: 'CZK', country: 'SK' }
             ];
 
             const INITIAL_DATA = [
-                { id: '1', name: 'Jan Novák', teamId: 't1', photoUrl: '', target: 8000, clients: 0, rev: 0, currency: 'EUR' },
-                { id: '2', name: 'Petr Svoboda', teamId: 't2', photoUrl: '', target: 6000, clients: 0, rev: 0, currency: 'EUR' },
-                { id: '3', name: 'Lucie Černá', teamId: 't1', photoUrl: '', target: 10000, clients: 0, rev: 0, currency: 'EUR' }
+                { id: '1', name: 'Jan Novák', teamId: 't1', photoUrl: '', target: 200000, clients: 0, rev: 0, currency: 'CZK' },
+                { id: '2', name: 'Petr Svoboda', teamId: 't2', photoUrl: '', target: 150000, clients: 0, rev: 0, currency: 'CZK' },
+                { id: '3', name: 'Lucie Černá', teamId: 't1', photoUrl: '', target: 250000, clients: 0, rev: 0, currency: 'CZK' }
             ];
 
             function App() {
                 // HLAVNÍ DATA (Z CLOUDU)
                 const [salesData, setSalesData] = useState([]);
                 const [availableTeams, setAvailableTeams] = useState([]);
-                const [globalTarget, setGlobalTarget] = useState(40000); 
+                const [globalTarget, setGlobalTarget] = useState(1000000); 
                 
                 // ADMINISTRATIVNÍ DATA (LOKÁLNÍ PŘED ULOŽENÍM)
                 const [adminSalesData, setAdminSalesData] = useState([]);
                 const [adminTeams, setAdminTeams] = useState([]);
-                const [adminGlobalTarget, setAdminGlobalTarget] = useState(40000);
+                const [adminGlobalTarget, setAdminGlobalTarget] = useState(1000000);
                 const [isSaving, setIsSaving] = useState(false);
                 const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -117,12 +117,12 @@
                         if (snap.exists()) {
                             const data = snap.data();
                             setSalesData(data.users || []);
-                            setGlobalTarget(data.globalTarget !== undefined ? data.globalTarget : 40000);
+                            setGlobalTarget(data.globalTarget !== undefined ? data.globalTarget : 1000000);
                             setAvailableTeams(data.teams || INITIAL_TEAMS);
                         } else {
-                            setDoc(docRef, { users: INITIAL_DATA, globalTarget: 40000, teams: INITIAL_TEAMS });
+                            setDoc(docRef, { users: INITIAL_DATA, globalTarget: 1000000, teams: INITIAL_TEAMS });
                             setSalesData(INITIAL_DATA);
-                            setGlobalTarget(40000);
+                            setGlobalTarget(1000000);
                             setAvailableTeams(INITIAL_TEAMS);
                         }
                         setIsLoading(false);
@@ -196,7 +196,7 @@
                 };
 
                 const adminAddRep = (teamId = '') => {
-                    const newRep = { id: Date.now().toString(), name: 'Nový Obchodník', teamId: teamId, photoUrl: '', target: 5000, clients: 0, rev: 0, currency: 'EUR' };
+                    const newRep = { id: Date.now().toString(), name: 'Nový Obchodník', teamId: teamId, photoUrl: '', target: 50000, clients: 0, rev: 0, currency: 'CZK' };
                     setAdminSalesData(prev => [...prev, newRep]);
                 };
 
@@ -303,7 +303,7 @@
                     }
 
                     return {
-                        global: { revEUR: globalRevEUR },
+                        global: { revEUR: globalRevEUR, revCZK: globalRevEUR * 25 },
                         teams: sortedTeams,
                         allReps: enrichedReps
                     };
@@ -339,12 +339,13 @@
                     return new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(val || 0);
                 };
 
-                const globalRev = overviewStats.global.revEUR;
-                const globalPct = globalTarget > 0 ? (globalRev / globalTarget) * 100 : 0;
+                // ZMĚNA: Hlavní firemní proměnné počítáme primárně v EUR, sekundárně CZK
+                const globalRevEUR = overviewStats.global.revEUR;
+                const globalRevCZK = overviewStats.global.revCZK;
+                const globalPct = globalTarget > 0 ? (globalRevEUR / globalTarget) * 100 : 0;
                 
-                let nextMilestonePct = Math.ceil((globalPct + 0.1) / 10) * 10;
-                if (nextMilestonePct > 100) nextMilestonePct = 100;
-                const missingToNext = globalTarget > 0 ? ((nextMilestonePct / 100) * globalTarget) - globalRev : 0;
+                // ZMĚNA: Zbývající částka se nyní počítá do 100 % celkového cíle v EUR
+                const missingToTargetEUR = globalTarget > 0 ? globalTarget - globalRevEUR : 0;
 
                 let motivation = { title: "Rozjezd měsíce", text: "Je před námi červen. Každá schůzka přikládá pod kotel!" };
                 if (globalPct >= 100) motivation = { title: "🏆 CÍL SPLNĚN!", text: "Neskutečná práce! Plán je doma, jedeme pro absolutní rekordy!" };
@@ -483,12 +484,16 @@
                                                         Společný cíl oddělení
                                                     </div>
                                                     <h2 className="text-orange-500 font-black uppercase tracking-[0.2em] text-sm sm:text-base mb-2">Aktuální obrat</h2>
-                                                    <div className="text-slate-800 text-5xl sm:text-7xl lg:text-8xl font-black italic tracking-tighter leading-none mb-2 drop-shadow-sm">
-                                                        {formatEUR(globalRev)}
+                                                    <div className="text-slate-800 text-5xl sm:text-7xl lg:text-8xl font-black italic tracking-tighter leading-none mb-1 drop-shadow-sm">
+                                                        {formatEUR(globalRevEUR)}
+                                                    </div>
+                                                    <div className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-widest pl-2">
+                                                        ≈ {formatCurrency(globalRevCZK, 'CZK')}
                                                     </div>
                                                     <div className="text-slate-500 font-bold text-xl sm:text-2xl mt-4 flex items-center gap-2">
                                                         <span>Cíl pro tento měsíc:</span> 
                                                         <span className="text-slate-800 bg-slate-100 px-3 py-1 rounded-lg">{formatEUR(globalTarget)}</span>
+                                                        <span className="text-xs text-slate-400 ml-2 uppercase tracking-widest">≈ {formatCurrency(globalTarget * 25, 'CZK')}</span>
                                                     </div>
                                                 </div>
                                                 
@@ -513,8 +518,9 @@
                                                             
                                                             {globalPct < 100 && (
                                                                 <div className="bg-white/20 backdrop-blur-sm border border-white/30 p-4 rounded-xl flex flex-col justify-center shadow-inner">
-                                                                    <span className="text-orange-100 text-[10px] font-black uppercase tracking-widest mb-1">Chybí do {nextMilestonePct}%:</span>
-                                                                    <span className="text-white font-black text-2xl">{formatEUR(missingToNext)}</span>
+                                                                    <span className="text-orange-100 text-[10px] font-black uppercase tracking-widest mb-1">Chybí do cíle (100 %):</span>
+                                                                    <span className="text-white font-black text-2xl">{formatEUR(missingToTargetEUR > 0 ? missingToTargetEUR : 0)}</span>
+                                                                    <span className="text-orange-200 text-[10px] font-bold uppercase tracking-widest mt-0.5">≈ {formatCurrency((missingToTargetEUR > 0 ? missingToTargetEUR : 0) * 25, 'CZK')}</span>
                                                                 </div>
                                                             )}
                                                             {globalPct >= 100 && (

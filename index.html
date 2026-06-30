@@ -110,15 +110,12 @@
         const formatMultiCurrency = (currMap, consolidatedCzk = null) => {
             const parts = [];
             
-            // Formát CZK
             if (currMap.CZK && currMap.CZK > 0) {
                 parts.push(new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(currMap.CZK));
             }
-            // Formát EUR
             if (currMap.EUR && currMap.EUR > 0) {
                 parts.push(new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(currMap.EUR));
             }
-            // Formát HUF
             if (currMap.HUF && currMap.HUF > 0) {
                 parts.push(new Intl.NumberFormat('hu-HU', { style: 'currency', currency: 'HUF', maximumFractionDigits: 0 }).format(currMap.HUF));
             }
@@ -259,38 +256,29 @@
         };
 
         // --- LINGVISTICKÉ POMOCNÉ FUNKCE PRO AUTOMATICKOU DETEKCI REGIONŮ ---
-        const slovakNamesMatch = (agent, owner, operator, title) => {
-            const text = (agent + ' ' + owner + ' ' + operator + ' ' + title).toLowerCase();
+        const slovakNamesMatch = (agent) => {
+            if (!agent) return false;
+            const text = agent.toLowerCase();
             
             const slovakKeys = [
-                'šebo', 'sebo', 'korman', 'janák', 'janak', 'jokl', 'ján', 'jozef', 
+                'šebo', 'sebo', 'korman', 'janák', 'janak', 'ján', 'jozef', 
                 'illesová', 'illesova', 'illes', 'slinčáková', 'slincakova', 'lovisek', 'lovíšek', 
-                'ganzarčík', 'ganzarcik', 'matus', 'matúš', 'zug', 'zuzana'
+                'ganzarčík', 'ganzarcik', 'matus', 'matúš'
             ];
-            
-            if (/[ľĽôÔŕŔĺĹäÄ]/g.test(agent + ' ' + owner + ' ' + operator + ' ' + title)) {
-                return true;
-            }
-            
-            if (text.includes('.sk') || text.includes(' slovensko') || text.includes(' bratislava') || text.includes(' košice') || text.includes(' kosice')) {
-                return true;
-            }
 
             return slovakKeys.some(key => text.includes(key));
         };
 
-        const hungarianNamesMatch = (agent, owner, operator, title) => {
-            const text = (agent + ' ' + owner + ' ' + operator + ' ' + title).toLowerCase();
+        const hungarianNamesMatch = (agent) => {
+            if (!agent) return false;
+            const text = agent.toLowerCase();
             
-            if (/[őŐűŰ]/g.test(agent + ' ' + owner + ' ' + operator + ' ' + title)) {
-                return true;
-            }
-            
-            if (text.includes('.hu') || text.includes('budapest') || text.includes('kft') || text.includes(' bt.') || text.includes(' ft')) {
-                return true;
-            }
+            const hungarianKeys = [
+                'nemeth', 'németh', 'kovacs', 'kovács', 'szabó', 'szabo', 
+                'horvath', 'horváth', 'budapest', 'kft', ' bt.'
+            ];
 
-            return false;
+            return hungarianKeys.some(key => text.includes(key));
         };
 
         // --- BULETPROOF CSV PARSER S DETEKCÍ SEPARÁTORU (ČÁRKA VS STŘEDNÍK) ---
@@ -423,8 +411,8 @@
                 }
 
                 if (detectedCurrency === 'CZK') {
-                    const isSlovak = slovakNamesMatch(agent, owner, operator, title);
-                    const isHungarian = hungarianNamesMatch(agent, owner, operator, title);
+                    const isSlovak = slovakNamesMatch(agent);
+                    const isHungarian = hungarianNamesMatch(agent);
 
                     if (isSlovak) {
                         detectedCurrency = 'EUR';
@@ -497,7 +485,7 @@
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheetName = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[firstSheetName];
-                        const json = XLSX.utils.sheet_to_json(worksheet);
+                        const json = XLSX.utils.sheet_to_json(worksheet, { raw: false });
                         
                         if (json.length === 0) {
                             showNotification("Nahrávaný Excel soubor neobsahuje žádná data.", "error");
@@ -1052,10 +1040,6 @@
                                     <div>
                                         <div class="flex justify-between items-center mb-2 text-sm">
                                             <div>
-                                                <span class="font-bold text-slate-800">4. Objednávka k Podpisu (Order Sent)</span>
-                                                <span class="text-xs text-slate-400 block">Odeslaná objednávka připravená k uzavření</span>
-                                            </div>
-                                            <div class="text-right">
                                                 <span class="font-bold text-purple-500 text-lg">${data.kpi.orderSentRate}%</span>
                                                 <span class="text-xs text-slate-500 block">${data.kpi.orderSentCount} ks (${formatCZK(data.kpi.orderSentValue)})</span>
                                             </div>

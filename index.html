@@ -3,1204 +3,1282 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Červnová Výheň - VIEW CZ</title>
+    <title>Manažerský Pipedrive Report</title>
+    
+    <!-- Tailwind CSS (pro prémiový vzhled) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
+    
+    <!-- Knihovna pro čtení Excel/CSV souborů (Bezpečná CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
     <style>
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-in { animation: fadeIn 0.5s ease-out forwards; }
-        body { background-color: #fffaf0; }
-        .summer-bg { background-image: radial-gradient(circle at top right, #ffedd5 0%, #fffaf0 100%); }
+        body { 
+            background-color: #f8fafc; 
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
     </style>
 </head>
-<body class="summer-bg text-slate-800">
-    <div id="root"></div>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Tvoje Firebase konfigurace
-        const firebaseConfig = {
-            apiKey: "AIzaSyANCEwT20Z4-j-J3UHnY8YpRyAl6f7Nj3Y",
-            authDomain: "soutez-141086.firebaseapp.com",
-            projectId: "soutez-141086",
-            storageBucket: "soutez-141086.firebasestorage.app",
-            messagingSenderId: "1024208635457",
-            appId: "1:1024208635457:web:3b976a8d7a91d8420ee8c0",
-            measurementId: "G-CVTDFBCFZ5"
-        };
-        const appId = 'view-cz-cerven-2026-v2';
-        
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
-        window.FirebaseServices = { auth, db, doc, onSnapshot, setDoc, signInAnonymously, signInWithCustomToken, onAuthStateChanged, appId };
-        // Oznámení pro React, že Firebase je připraven
-        window.dispatchEvent(new Event('firebaseReady'));
-    </script>
-
-    <script type="text/babel" data-presets="react">
-        const { useState, useEffect, useMemo } = React;
-        
-        // Hlavní funkce pro spuštění aplikace (čeká na Firebase)
-        const renderApp = () => {
-            const { auth, db, doc, onSnapshot, setDoc, signInAnonymously, signInWithCustomToken, onAuthStateChanged, appId } = window.FirebaseServices;
-
-            const INITIAL_TEAMS = [
-                { id: 't1', name: 'Alfa', target: 500000, currency: 'CZK', country: 'CZ' },
-                { id: 't2', name: 'Beta', target: 400000, currency: 'CZK', country: 'SK' }
-            ];
-
-            const INITIAL_DATA = [
-                { id: '1', name: 'Jan Novák', teamId: 't1', photoUrl: '', target: 200000, clients: 0, rev: 0, currency: 'CZK' },
-                { id: '2', name: 'Petr Svoboda', teamId: 't2', photoUrl: '', target: 150000, clients: 0, rev: 0, currency: 'CZK' },
-                { id: '3', name: 'Lucie Černá', teamId: 't1', photoUrl: '', target: 250000, clients: 0, rev: 0, currency: 'CZK' }
-            ];
-
-            function App() {
-                // HLAVNÍ DATA (Z CLOUDU)
-                const [salesData, setSalesData] = useState([]);
-                const [availableTeams, setAvailableTeams] = useState([]);
-                const [globalTarget, setGlobalTarget] = useState(1000000); 
-                
-                // ADMINISTRATIVNÍ DATA (LOKÁLNÍ PŘED ULOŽENÍM)
-                const [adminSalesData, setAdminSalesData] = useState([]);
-                const [adminTeams, setAdminTeams] = useState([]);
-                const [adminGlobalTarget, setAdminGlobalTarget] = useState(1000000);
-                const [isSaving, setIsSaving] = useState(false);
-                const [saveSuccess, setSaveSuccess] = useState(false);
-
-                const [user, setUser] = useState(null);
-                const [view, setView] = useState('board'); 
-                const [isAdmin, setIsAdmin] = useState(false);
-                const [adminPin, setAdminPin] = useState('');
-                const [showPinModal, setShowPinModal] = useState(false);
-                const [pinError, setPinError] = useState('');
-                const [isLoading, setIsLoading] = useState(true);
-                const [repToDelete, setRepToDelete] = useState(null);
-                const [authError, setAuthError] = useState(null);
-
-                const [newTeamName, setNewTeamName] = useState('');
-
-                // --- PŘIPOJENÍ K FIREBASE ---
-                useEffect(() => {
-                    const initAuth = async () => {
-                        try {
-                            await signInAnonymously(auth);
-                        } catch (error) {
-                            console.error("Auth error:", error);
-                            setAuthError(error.message);
-                            setIsLoading(false);
-                        }
-                    };
-                    initAuth();
-
-                    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-                        setUser(user);
-                        if (!user) setIsLoading(false);
-                    });
-
-                    return () => unsubscribeAuth();
-                }, []);
-                
-                useEffect(() => {
-                    if (!user) return;
-                    
-                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sales_june', 'main');
-                    
-                    const unsubscribeSnap = onSnapshot(docRef, (snap) => {
-                        if (snap.exists()) {
-                            const data = snap.data();
-                            setSalesData(data.users || []);
-                            setGlobalTarget(data.globalTarget !== undefined ? data.globalTarget : 1000000);
-                            setAvailableTeams(data.teams || INITIAL_TEAMS);
-                        } else {
-                            setDoc(docRef, { users: INITIAL_DATA, globalTarget: 1000000, teams: INITIAL_TEAMS });
-                            setSalesData(INITIAL_DATA);
-                            setGlobalTarget(1000000);
-                            setAvailableTeams(INITIAL_TEAMS);
-                        }
-                        setIsLoading(false);
-                    }, (err) => {
-                        console.error("Chyba databáze:", err);
-                        setIsLoading(false);
-                    });
-                    return () => unsubscribeSnap();
-                }, [user]);
-
-                // --- LOGIKA UKLÁDÁNÍ (Z ADMIN PANELU DO CLOUDU) ---
-                const saveAllChanges = async () => {
-                    if (!user) return;
-                    setIsSaving(true);
-                    try {
-                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sales_june', 'main');
-                        await setDoc(docRef, { users: adminSalesData, globalTarget: adminGlobalTarget, teams: adminTeams });
-                        setSaveSuccess(true);
-                        setTimeout(() => setSaveSuccess(false), 3000); // Skryje hlášku "Uloženo" za 3 vteřiny
-                    } catch (err) {
-                        console.error("Zápis do cloudu selhal:", err);
-                        alert("CHYBA PŘI UKLÁDÁNÍ! Zkontrolujte, zda máte v administraci Firebase (Firestore Database -> záložka Rules) povoleno čtení a zápis: allow read, write: if true; \n\nDetail chyby: " + err.message);
-                    }
-                    setIsSaving(false);
-                };
-
-                // LOKÁLNÍ FUNKCE PRO SPRÁVU (ADMIN) - PŘED ULOŽENÍM
-                const handlePinSubmit = (e) => {
-                    e.preventDefault();
-                    if (adminPin === '9175') {
-                        setIsAdmin(true);
-                        // Nakopírujeme ostrá data do administrace
-                        setAdminSalesData([...salesData]);
-                        setAdminTeams([...availableTeams]);
-                        setAdminGlobalTarget(globalTarget);
-                        
-                        setShowPinModal(false);
-                        setAdminPin('');
-                        setPinError('');
-                    } else {
-                        setPinError('Nesprávný PIN.');
-                    }
-                };
-
-                const adminUpdateTeam = (id, field, value) => {
-                    let parsedValue = value;
-                    if (field === 'target') parsedValue = value === '' ? '' : Number(value);
-                    setAdminTeams(prev => prev.map(t => t.id === id ? { ...t, [field]: parsedValue } : t));
-                };
-
-                const adminAddTeam = () => {
-                    const trimmed = newTeamName.trim();
-                    if (trimmed) {
-                        const newTeam = { id: 'team-' + Date.now(), name: trimmed, target: 0, currency: 'EUR', country: 'CZ' };
-                        setAdminTeams(prev => [...prev, newTeam]);
-                        setNewTeamName('');
-                    }
-                };
-
-                const adminDeleteTeam = (teamIdToDelete) => {
-                    setAdminTeams(prev => prev.filter(t => t.id !== teamIdToDelete));
-                    setAdminSalesData(prev => prev.map(rep => rep.teamId === teamIdToDelete ? { ...rep, teamId: '' } : rep));
-                };
-
-                const adminUpdateRep = (id, field, value) => {
-                    let parsedValue = value;
-                    if (['clients', 'rev', 'target'].includes(field)) {
-                        parsedValue = value === '' ? '' : Number(value);
-                    }
-                    setAdminSalesData(prev => prev.map(rep => rep.id === id ? { ...rep, [field]: parsedValue } : rep));
-                };
-
-                const adminAddRep = (teamId = '') => {
-                    const newRep = { id: Date.now().toString(), name: 'Nový Obchodník', teamId: teamId, photoUrl: '', target: 50000, clients: 0, rev: 0, currency: 'CZK' };
-                    setAdminSalesData(prev => [...prev, newRep]);
-                };
-
-                const confirmDelete = () => {
-                    if (repToDelete) {
-                        setAdminSalesData(prev => prev.filter(r => r.id !== repToDelete));
-                        setRepToDelete(null);
-                    }
-                };
-
-                // PŘEPOČTY MĚN
-                const getValInEUR = (val, currency) => {
-                    const v = Number(val) || 0;
-                    if (currency === 'EUR') return v;
-                    if (currency === 'CZK') return v / 25;
-                    if (currency === 'HUF') return v / (25 * 15.5);
-                    return v;
-                };
-
-                const getValFromEUR = (valEUR, currency) => {
-                    const v = Number(valEUR) || 0;
-                    if (currency === 'CZK') return v * 25;
-                    if (currency === 'HUF') return v * 25 * 15.5;
-                    return v;
-                };
-
-                const getPct = (rev, target) => {
-                    const r = Number(rev) || 0;
-                    const t = Number(target) || 0;
-                    return t > 0 ? (r / t) * 100 : 0;
-                };
-
-                const getFlagEmoji = (countryCode) => {
-                    if (countryCode === 'CZ') return '🇨🇿';
-                    if (countryCode === 'SK') return '🇸🇰';
-                    if (countryCode === 'HU') return '🇭🇺';
-                    return '🏳️';
-                };
-
-                const getAvatarUrl = (rep) => {
-                    if (rep.photoUrl && rep.photoUrl.trim() !== '') {
-                        return rep.photoUrl;
-                    }
-                    return `https://ui-avatars.com/api/?name=${encodeURIComponent(rep.name)}&background=ffedd5&color=ea580c&bold=true`;
-                };
-
-                const getRepCountry = (teamId) => {
-                    const team = availableTeams.find(t => t.id === teamId);
-                    return team ? team.country : 'CZ';
-                };
-
-                // VÝPOČTY PRO FIREMNÍ A TÝMOVÝ PŘEHLED
-                const overviewStats = useMemo(() => {
-                    let globalRevEUR = 0;
-                    const teamsMap = {};
-
-                    availableTeams.forEach(t => {
-                        const tCurrency = t.currency || 'EUR';
-                        const tTargetEUR = getValInEUR(t.target, tCurrency);
-                        teamsMap[t.id] = { 
-                            id: t.id, name: t.name, country: t.country || 'CZ', 
-                            target: t.target || 0, currency: tCurrency, 
-                            targetEUR: tTargetEUR, revEUR: 0, clients: 0, reps: [], pct: 0 
-                        };
-                    });
-
-                    const unassigned = { id: 'unassigned', name: 'Bez týmu', country: '', target: 0, currency: 'EUR', targetEUR: 0, revEUR: 0, clients: 0, reps: [], pct: 0 };
-
-                    const enrichedReps = salesData.map(rep => ({
-                        ...rep,
-                        currency: rep.currency || 'EUR',
-                        revEUR: getValInEUR(rep.rev, rep.currency || 'EUR'),
-                        targetEUR: getValInEUR(rep.target, rep.currency || 'EUR'),
-                        pct: getPct(getValInEUR(rep.rev, rep.currency || 'EUR'), getValInEUR(rep.target, rep.currency || 'EUR'))
-                    }));
-
-                    enrichedReps.forEach(rep => {
-                        const tId = (rep.teamId && teamsMap[rep.teamId]) ? rep.teamId : 'unassigned';
-                        const repClients = Number(rep.clients) || 0;
-
-                        globalRevEUR += rep.revEUR;
-
-                        if (tId !== 'unassigned') {
-                            teamsMap[tId].revEUR += rep.revEUR;
-                            teamsMap[tId].clients += repClients;
-                            teamsMap[tId].reps.push(rep);
-                        } else {
-                            unassigned.revEUR += rep.revEUR;
-                            unassigned.clients += repClients;
-                            unassigned.reps.push(rep);
-                        }
-                    });
-
-                    // Spočítat procenta pro týmy
-                    Object.values(teamsMap).forEach(t => {
-                        t.pct = t.targetEUR > 0 ? (t.revEUR / t.targetEUR) * 100 : 0;
-                    });
-                    unassigned.pct = unassigned.targetEUR > 0 ? (unassigned.revEUR / unassigned.targetEUR) * 100 : 0;
-
-                    const sortedTeams = Object.values(teamsMap).sort((a, b) => b.pct - a.pct);
-                    
-                    if (unassigned.reps.length > 0) {
-                        sortedTeams.push(unassigned);
-                    }
-
-                    return {
-                        global: { revEUR: globalRevEUR, revCZK: globalRevEUR * 25 },
-                        teams: sortedTeams,
-                        allReps: enrichedReps
-                    };
-                }, [salesData, availableTeams]);
-
-                // SEŘAZENÍ PRO SOUTĚŽE
-                const sortedIndividualsPct = useMemo(() => {
-                    return [...overviewStats.allReps].sort((a, b) => {
-                        if (a.pct === b.pct) {
-                            return b.revEUR - a.revEUR; 
-                        }
-                        return b.pct - a.pct;
-                    });
-                }, [overviewStats.allReps]);
-
-                const sortedClients = useMemo(() => {
-                    return [...overviewStats.allReps].sort((a, b) => {
-                        const clientsA = Number(a.clients) || 0;
-                        const clientsB = Number(b.clients) || 0;
-                        if (clientsA === clientsB) {
-                            return b.revEUR - a.revEUR; 
-                        }
-                        return clientsB - clientsA;
-                    });
-                }, [overviewStats.allReps]);
-                
-                const formatEUR = (v) => new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v || 0);
-
-                const formatCurrency = (val, currencyCode) => {
-                    const c = currencyCode || 'EUR';
-                    if (c === 'HUF') return `${new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(val || 0)} HUF`;
-                    if (c === 'CZK') return new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(val || 0);
-                    return new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(val || 0);
-                };
-
-                const globalRevEUR = overviewStats.global.revEUR;
-                const globalRevCZK = overviewStats.global.revCZK;
-                const globalPct = globalTarget > 0 ? (globalRevEUR / globalTarget) * 100 : 0;
-                
-                const missingToTargetEUR = globalTarget > 0 ? globalTarget - globalRevEUR : 0;
-
-                let motivation = { title: "Rozjezd měsíce", text: "Je před námi červen. Každá schůzka přikládá pod kotel!" };
-                if (globalPct >= 100) motivation = { title: "🏆 CÍL SPLNĚN!", text: "Neskutečná práce! Plán je doma, jedeme pro absolutní rekordy!" };
-                else if (globalPct >= 80) motivation = { title: "🔥 Extrémní výheň", text: "Poslední metry! Tohle už nikoho nenechá chladným." };
-                else if (globalPct >= 60) motivation = { title: "☀️ Teplota stoupá", text: "Výborný výkon celého oddělení. Plán je na dosah, nepolevujeme!" };
-                else if (globalPct >= 40) motivation = { title: "🎯 Zvyšujeme obrátky", text: "Jsme v polovině. Skvělá práce, šlápneme do toho naplno!" };
-                else if (globalPct >= 20) motivation = { title: "💨 První jiskry", text: "První dealy jsou doma. Držíme tempo a jdeme si pro další." };
-
-                const topRepPct = sortedIndividualsPct.length > 0 ? sortedIndividualsPct[0] : null;
-                const topRepClients = sortedClients.length > 0 ? sortedClients[0] : null;
-                
-                const validTeams = overviewStats.teams.filter(t => t.id !== 'unassigned');
-                const topTeamPct = validTeams.length > 0 ? [...validTeams].sort((a, b) => b.pct - a.pct)[0] : null;
-
-                if (authError) {
-                    return (
-                        <div className="min-h-screen flex flex-col items-center justify-center bg-orange-50 p-6 text-center font-sans">
-                            <div className="text-6xl mb-4">⚠️</div>
-                            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter mb-2">Chyba ověření databáze</h2>
-                            <div className="text-slate-600 max-w-md bg-white p-6 rounded-2xl border border-orange-200 shadow-sm">
-                                <p className="mb-4">Vypadá to, že ve vašem Firebase projektu nemáte povolené anonymní přihlašování.</p>
-                                <p>Běžte do <strong>Firebase Console &rarr; Authentication &rarr; Sign-in method</strong> a povolte možnost <strong>Anonymous</strong>.</p>
-                            </div>
-                            <p className="text-[10px] text-slate-400 mt-4 font-mono max-w-lg">{authError}</p>
-                        </div>
-                    );
-                }
-
-                if (isLoading) {
-                    return (
-                        <div className="min-h-screen flex flex-col items-center justify-center bg-orange-50">
-                            <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                            <p className="text-orange-600 font-bold uppercase tracking-widest text-[10px]">Načítání výsledků...</p>
-                        </div>
-                    );
-                }
-
-                return (
-                    <div className="min-h-screen pb-24 font-sans">
-                        
-                        <header className="bg-white/80 backdrop-blur-md border-b border-orange-100 sticky top-0 z-30 shadow-sm px-4 py-3 sm:px-8">
-                            <div className="max-w-[1600px] mx-auto flex justify-between items-center">
-                                <div className="flex items-center gap-4">
-                                    <img src="https://viewcz.com/images/svg/head-logo.svg" alt="VIEW CZ" className="h-8 sm:h-10" />
-                                    <div className="h-6 w-px bg-orange-200 hidden sm:block"></div>
-                                    <h1 className="text-lg font-black tracking-tight text-orange-600 uppercase flex items-center gap-2">
-                                        Červnová Výheň
-                                    </h1>
-                                </div>
-                            </div>
-                        </header>
-
-                        <main className="max-w-[1600px] mx-auto p-4 sm:p-8 space-y-12">
-                            
-                            {view === 'rules' ? (
-                                <div className="max-w-4xl mx-auto space-y-12 animate-in">
-                                    <div className="text-center pb-4 pt-8">
-                                        <h1 className="text-4xl sm:text-6xl font-black text-slate-900 uppercase tracking-tighter italic mb-4">
-                                            Červnová<br/><span className="text-orange-500">Výheň 2026</span>
-                                        </h1>
-                                        <p className="text-xl font-bold text-orange-600/80 uppercase tracking-widest">Nejteplejší měsíc roku. Překonej svůj stín!</p>
-                                    </div>
-
-                                    <div className="text-center">
-                                        <button
-                                            onClick={() => setView('board')}
-                                            className="px-8 py-4 rounded-full font-black text-sm uppercase tracking-[0.2em] transition-all bg-orange-500 text-white hover:bg-orange-600 shadow-xl shadow-orange-200"
-                                        >
-                                            ← Zpět na výsledky a cíle
-                                        </button>
-                                    </div>
-
-                                    {/* PRAVIDLA 1 */}
-                                    <article className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden border border-orange-100">
-                                        <div className="bg-gradient-to-r from-orange-500 to-red-500 p-8 sm:p-12 text-white">
-                                            <h2 className="text-3xl sm:text-4xl font-black mb-2 tracking-tight flex items-center gap-3">
-                                                <span className="text-4xl">📈</span> Měsíční ofenzíva
-                                            </h2>
-                                            <p className="opacity-90 font-bold uppercase tracking-widest text-sm">Soutěž o nejvyšší % splnění cíle</p>
-                                        </div>
-                                        <div className="p-8 sm:p-12 space-y-8">
-                                            <p className="text-lg text-slate-600 leading-relaxed italic border-l-4 border-orange-500 pl-6">
-                                                Nehraje se na absolutní čísla, ale na to, kdo nejvíc překoná svá vlastní očekávání! Spočítáme procento splnění vašeho osobního i týmového cíle.
-                                            </p>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                                <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6 text-center shadow-sm">
-                                                    <div className="text-4xl mb-3">👤</div>
-                                                    <h3 className="font-black text-slate-800 uppercase tracking-tight text-xl mb-1">Nejlepší jednotlivec</h3>
-                                                    <p className="text-sm text-slate-500 mb-4">Nejvyšší % splnění osobního cíle</p>
-                                                    <div className="text-3xl font-black text-orange-600">200 € <span className="text-lg text-orange-400">/ ~5 000 Kč</span></div>
-                                                </div>
-                                                <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center shadow-sm">
-                                                    <div className="text-4xl mb-3">👥</div>
-                                                    <h3 className="font-black text-slate-800 uppercase tracking-tight text-xl mb-1">Nejlepší týmová posádka</h3>
-                                                    <p className="text-sm text-slate-500 mb-4">Nejvyšší % splnění týmového cíle</p>
-                                                    <div className="text-3xl font-black text-red-600">200 € <span className="text-lg text-red-400">/ ~5 000 Kč</span></div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </article>
-
-                                    {/* PRAVIDLA 2 */}
-                                    <article className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden border border-amber-100">
-                                        <div className="bg-gradient-to-r from-amber-400 to-orange-500 p-8 sm:p-12 text-white">
-                                            <h2 className="text-3xl sm:text-4xl font-black mb-2 tracking-tight flex items-center gap-3">
-                                                <span className="text-4xl">🎣</span> Lovec Klientů
-                                            </h2>
-                                            <p className="opacity-90 font-bold uppercase tracking-widest text-sm">Týdenní sprint pro jednotlivce</p>
-                                        </div>
-                                        <div className="p-8 sm:p-12 space-y-8">
-                                            <p className="text-lg text-slate-600 leading-relaxed italic border-l-4 border-amber-500 pl-6">
-                                                Rozhoduje čistě jen počet získaných unikátních klientů během daného týdne. 
-                                                <span className="block mt-2 font-bold text-amber-600">Při shodě rozhoduje celkový čistý obrat.</span>
-                                            </p>
-                                            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center shadow-sm max-w-md mx-auto">
-                                                <div className="text-4xl mb-3">🥇</div>
-                                                <h3 className="font-black text-slate-800 uppercase tracking-tight text-xl mb-1">Vítěz týdne</h3>
-                                                <p className="text-sm text-slate-500 mb-4">Nejvíce přivedených klientů</p>
-                                                <div className="text-3xl font-black text-amber-600">40 € <span className="text-lg text-amber-400">/ ~1 000 Kč</span></div>
-                                            </div>
-                                        </div>
-                                    </article>
-                                </div>
-                            ) : (
-                                <div className="space-y-12 animate-in">
-                                    
-                                    {/* 1. CELKOVÝ PŘEHLED ODDĚLENÍ */}
-                                    <section className="bg-white rounded-[3rem] shadow-2xl p-8 sm:p-12 relative overflow-hidden border-2 border-orange-100">
-                                        <div className="absolute top-0 right-0 p-8 opacity-[0.03] text-9xl leading-none select-none">🔥</div>
-                                        <div className="absolute inset-0 bg-gradient-to-br from-orange-50/80 via-white to-white z-0 pointer-events-none"></div>
-
-                                        <div className="relative z-10">
-                                            <div className="flex flex-col xl:flex-row justify-between xl:items-end gap-8 mb-12">
-                                                <div>
-                                                    <div className="inline-block bg-orange-100 text-orange-700 px-4 py-1.5 rounded-full font-black uppercase tracking-widest text-xs mb-6 shadow-sm border border-orange-200">
-                                                        Společný cíl oddělení
-                                                    </div>
-                                                    <h2 className="text-orange-500 font-black uppercase tracking-[0.2em] text-sm sm:text-base mb-2">Aktuální obrat</h2>
-                                                    <div className="text-slate-800 text-5xl sm:text-7xl lg:text-8xl font-black italic tracking-tighter leading-none mb-1 drop-shadow-sm">
-                                                        {formatEUR(globalRevEUR)}
-                                                    </div>
-                                                    <div className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-widest pl-2">
-                                                        ≈ {formatCurrency(globalRevCZK, 'CZK')}
-                                                    </div>
-                                                    <div className="text-slate-500 font-bold text-xl sm:text-2xl mt-4 flex items-center gap-2">
-                                                        <span>Cíl pro tento měsíc:</span> 
-                                                        <span className="text-slate-800 bg-slate-100 px-3 py-1 rounded-lg">{formatEUR(globalTarget)}</span>
-                                                        <span className="text-xs text-slate-400 ml-2 uppercase tracking-widest">≈ {formatCurrency(globalTarget * 25, 'CZK')}</span>
-                                                    </div>
-                                                </div>
-                                                
-                                                {/* MOTIVAČNÍ BLOK */}
-                                                <div className="flex flex-col sm:flex-row xl:flex-col gap-4 w-full xl:w-96 shrink-0">
-                                                    <div className="bg-gradient-to-br from-orange-500 to-red-600 p-6 rounded-[2rem] w-full shadow-xl text-white relative overflow-hidden">
-                                                        <div className="absolute -right-4 -top-4 text-6xl opacity-20">🎯</div>
-                                                        <div className="relative z-10">
-                                                            <div className="flex items-center justify-between mb-4">
-                                                                <span className="text-orange-100 text-xs font-black uppercase tracking-widest">Plnění plánu</span>
-                                                                <span className="text-white text-4xl font-black drop-shadow-md">
-                                                                    {Math.round(globalPct)} %
-                                                                </span>
-                                                            </div>
-                                                            
-                                                            <h4 className="text-white font-black text-xl mb-1 flex items-center gap-2 drop-shadow-sm">
-                                                                {motivation.title}
-                                                            </h4>
-                                                            <p className="text-orange-100 font-medium text-sm mb-5 leading-relaxed">
-                                                                {motivation.text}
-                                                            </p>
-                                                            
-                                                            {globalPct < 100 && (
-                                                                <div className="bg-white/20 backdrop-blur-sm border border-white/30 p-4 rounded-xl flex flex-col justify-center shadow-inner">
-                                                                    <span className="text-orange-100 text-[10px] font-black uppercase tracking-widest mb-1">Chybí do cíle (100 %):</span>
-                                                                    <span className="text-white font-black text-2xl">{formatEUR(missingToTargetEUR > 0 ? missingToTargetEUR : 0)}</span>
-                                                                    <span className="text-orange-200 text-[10px] font-bold uppercase tracking-widest mt-0.5">≈ {formatCurrency((missingToTargetEUR > 0 ? missingToTargetEUR : 0) * 25, 'CZK')}</span>
-                                                                </div>
-                                                            )}
-                                                            {globalPct >= 100 && (
-                                                                <div className="bg-white text-orange-600 p-4 rounded-xl flex items-center justify-center shadow-lg">
-                                                                    <span className="text-sm font-black uppercase tracking-widest">Cíl dosažen! Jdeme přes závit! 🚀</span>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* PROGRESS BAR */}
-                                            <div className="relative pt-8 pb-10 mt-6">
-                                                <div 
-                                                    className="absolute -top-3 transition-all duration-1000 ease-out z-20"
-                                                    style={{ left: `max(0%, min(100%, ${globalPct}%))`, transform: 'translateX(-50%)' }}
-                                                >
-                                                    <div className="bg-slate-800 text-white font-black text-xl px-5 py-2 rounded-xl shadow-[0_10px_25px_rgba(0,0,0,0.3)] flex flex-col items-center border-2 border-white">
-                                                        <span>{Math.round(globalPct)} %</span>
-                                                        <div className="w-0 h-0 border-l-[8px] border-r-[8px] border-t-[10px] border-l-transparent border-r-transparent border-t-slate-800 absolute -bottom-[10px]"></div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="h-12 sm:h-16 bg-slate-100 rounded-3xl overflow-hidden shadow-inner relative border-4 border-white ring-1 ring-slate-200">
-                                                    {/* Milníky */}
-                                                    <div className="absolute inset-0 flex justify-between z-10 pointer-events-none">
-                                                        {[25, 50, 75].map(p => (
-                                                            <div key={`tick-${p}`} className="h-full w-[2px] bg-white/50 relative" style={{ left: `${p}%`, position: 'absolute' }}>
-                                                                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 text-[10px] font-black text-slate-400 bg-white px-2 py-1 rounded-md shadow-sm border border-slate-100">{p}%</div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                    
-                                                    <div 
-                                                        className="h-full bg-gradient-to-r from-amber-400 via-orange-500 to-red-600 transition-all duration-1000 ease-out relative z-0 flex items-center justify-end pr-3"
-                                                        style={{ width: `${Math.min(globalPct, 100)}%` }}
-                                                    >
-                                                        <div className="absolute inset-0 opacity-20 mix-blend-overlay" style={{ backgroundImage: 'linear-gradient(45deg, rgba(255,255,255,1) 25%, transparent 25%, transparent 50%, rgba(255,255,255,1) 50%, rgba(255,255,255,1) 75%, transparent 75%, transparent)', backgroundSize: '3rem 3rem' }}></div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="absolute top-full left-0 mt-3 text-slate-400 font-bold text-xs bg-white px-2 py-1 rounded-md border border-slate-100 shadow-sm">0%</div>
-                                                <div className="absolute top-full right-0 mt-3 text-red-600 font-black text-xs bg-red-50 px-2 py-1 rounded-md border border-red-200 shadow-sm">100% CÍL 🏆</div>
-                                            </div>
-                                        </div>
-                                    </section>
-
-                                    {/* PRŮBĚŽNÍ LÍDŘI - TOP DASHBOARD */}
-                                    <div className="mt-12 mb-12 animate-in" style={{ animationDelay: '0.1s' }}>
-                                        <h2 className="text-2xl sm:text-3xl font-black text-slate-800 uppercase tracking-tighter mb-6 flex items-center gap-3">
-                                            <span className="text-4xl">👑</span> Síň slávy - Průběžní lídři
-                                        </h2>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                            
-                                            {/* Top Jednotlivec */}
-                                            <div className="bg-gradient-to-br from-orange-400 to-red-500 rounded-[2rem] p-1 shadow-xl shadow-orange-500/20 transform transition-transform hover:-translate-y-1">
-                                                <div className="bg-white rounded-[calc(2rem-4px)] p-6 h-full flex flex-col relative overflow-hidden">
-                                                    <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-bl-full -mr-10 -mt-10 z-0"></div>
-                                                    <div className="relative z-10 flex flex-col h-full">
-                                                        <div className="text-orange-600 font-black text-[10px] uppercase tracking-widest mb-4">Nejlepší obchodník (%)</div>
-                                                        {topRepPct && topRepPct.pct > 0 ? (
-                                                            <div className="flex items-center gap-4 mt-auto">
-                                                                <div className="w-16 h-16 shrink-0 rounded-full border-4 border-orange-100 shadow-md overflow-hidden bg-slate-100">
-                                                                    <img src={getAvatarUrl(topRepPct)} alt={topRepPct.name} className="w-full h-full object-cover" onError={(e) => e.target.style.display='none'} />
-                                                                </div>
-                                                                <div>
-                                                                    <div className="font-black text-slate-800 text-xl leading-tight">{topRepPct.name}</div>
-                                                                    <div className="font-black text-orange-600 text-2xl mt-1">
-                                                                        {Math.round(topRepPct.pct)} <span className="text-sm opacity-80">% cíle</span>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="text-slate-400 font-medium italic mt-auto text-sm">Zatím bez plnění</div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Top Tým */}
-                                            <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-[2rem] p-1 shadow-xl shadow-red-500/20 transform transition-transform hover:-translate-y-1">
-                                                <div className="bg-white rounded-[calc(2rem-4px)] p-6 h-full flex flex-col relative overflow-hidden">
-                                                    <div className="absolute top-0 right-0 w-32 h-32 bg-red-50 rounded-bl-full -mr-10 -mt-10 z-0"></div>
-                                                    <div className="relative z-10 flex flex-col h-full">
-                                                        <div className="text-red-600 font-black text-[10px] uppercase tracking-widest mb-4">Nejlepší tým (%)</div>
-                                                        {topTeamPct && topTeamPct.pct > 0 ? (
-                                                            <div className="flex items-center gap-4 mt-auto">
-                                                                <div className="w-16 h-16 shrink-0 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center font-black text-3xl shadow-md border-2 border-white">
-                                                                    {getFlagEmoji(topTeamPct.country)}
-                                                                </div>
-                                                                <div>
-                                                                    <div className="font-black text-slate-800 text-xl leading-tight">{topTeamPct.name}</div>
-                                                                    <div className="font-black text-red-600 text-2xl mt-1">
-                                                                        {Math.round(topTeamPct.pct)} <span className="text-sm opacity-80">% cíle</span>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="text-slate-400 font-medium italic mt-auto text-sm">Zatím bez plnění</div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Top Klienti */}
-                                            <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] p-1 shadow-xl shadow-amber-500/20 transform transition-transform hover:-translate-y-1">
-                                                <div className="bg-white rounded-[calc(2rem-4px)] p-6 h-full flex flex-col relative overflow-hidden">
-                                                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-50 rounded-bl-full -mr-10 -mt-10 z-0"></div>
-                                                    <div className="relative z-10 flex flex-col h-full">
-                                                        <div className="text-amber-600 font-black text-[10px] uppercase tracking-widest mb-4">Lovec Klientů</div>
-                                                        {topRepClients && topRepClients.clients > 0 ? (
-                                                            <div className="flex items-center gap-4 mt-auto">
-                                                                <div className="w-16 h-16 shrink-0 rounded-full border-4 border-amber-100 shadow-md overflow-hidden bg-slate-100">
-                                                                    <img src={getAvatarUrl(topRepClients)} alt={topRepClients.name} className="w-full h-full object-cover" onError={(e) => e.target.style.display='none'} />
-                                                                </div>
-                                                                <div>
-                                                                    <div className="font-black text-slate-800 text-xl leading-tight">{topRepClients.name}</div>
-                                                                    <div className="font-black text-amber-600 text-2xl mt-1">
-                                                                        {topRepClients.clients} <span className="text-xs uppercase tracking-widest opacity-80">klientů</span>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="text-slate-400 font-medium italic mt-auto text-sm">Zatím bez klientů</div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                        </div>
-                                    </div>
-
-                                    {/* ODDĚLOVAČ SOUTĚŽÍ A ODMĚNY */}
-                                    <div className="mt-12 mb-12 flex flex-col md:flex-row gap-6 items-center justify-between">
-                                        <div>
-                                            <h2 className="text-3xl sm:text-5xl font-black text-slate-800 uppercase tracking-tighter italic">Osobní a týmové výzvy</h2>
-                                            <p className="text-orange-600 font-bold uppercase tracking-widest mt-2">Překonej svůj cíl a ber odměnu</p>
-                                        </div>
-                                        <button
-                                            onClick={() => setView('rules')}
-                                            className="px-6 py-3 rounded-xl font-black text-sm uppercase tracking-widest transition-all shadow-md bg-white border-2 border-orange-200 text-orange-600 hover:bg-orange-50 hover:scale-105 flex items-center gap-2"
-                                        >
-                                            <span>📖</span> Pravidla a odměny
-                                        </button>
-                                    </div>
-
-                                    {/* 2. TÝMOVÁ ARÉNA */}
-                                    <div className="mb-16">
-                                        <div className="flex items-center gap-4 mb-8">
-                                            <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-red-200">👥</div>
-                                            <div>
-                                                <h3 className="text-2xl font-black uppercase tracking-tight text-slate-800">Týmová Aréna</h3>
-                                                <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Nejlepší tým vyhrává <span className="text-red-600">200 € (~5000 Kč)</span></p>
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                            {overviewStats.teams.map((team, index) => {
-                                                if(team.id === 'unassigned') return null;
-                                                
-                                                const missing = team.targetEUR - team.revEUR;
-
-                                                return (
-                                                    <div key={`arena-team-${team.id}`} className={`bg-white rounded-[2.5rem] shadow-xl p-8 border-2 transition-transform hover:-translate-y-1 ${index === 0 ? 'border-red-400 shadow-red-900/10' : 'border-slate-200'}`}>
-                                                        <div className="flex justify-between items-start mb-6">
-                                                            <div className="flex items-center gap-4">
-                                                                <div className="text-5xl drop-shadow-md">{getFlagEmoji(team.country)}</div>
-                                                                <div>
-                                                                    <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{team.name}</h4>
-                                                                    <div className="text-slate-400 font-bold text-xs uppercase tracking-widest">{team.reps.length} hráčů</div>
-                                                                </div>
-                                                            </div>
-                                                            <div className={`px-4 py-2 rounded-2xl font-black text-2xl shadow-inner ${index === 0 ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-slate-50 text-slate-600 border border-slate-200'}`}>
-                                                                {Math.round(team.pct)}%
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="mb-6">
-                                                            <div className="flex justify-between text-xs font-black uppercase tracking-widest mb-2">
-                                                                <span className="text-slate-500">Stav: <span className="text-slate-800 text-sm">{formatCurrency(getValFromEUR(team.revEUR, team.currency), team.currency)}</span></span>
-                                                                <span className="text-slate-400">Cíl: {formatCurrency(team.target, team.currency)}</span>
-                                                            </div>
-                                                            <div className="h-6 bg-slate-100 rounded-full overflow-hidden shadow-inner p-1">
-                                                                <div className={`h-full rounded-full transition-all duration-1000 ${team.pct >= 100 ? 'bg-emerald-500' : index === 0 ? 'bg-gradient-to-r from-red-400 to-red-600' : 'bg-slate-400'}`} style={{ width: `${Math.min(team.pct, 100)}%` }}></div>
-                                                            </div>
-                                                            {missing > 0 ? (
-                                                                <div className="text-right mt-2 text-xs font-bold text-red-500">
-                                                                    Chybí {formatCurrency(getValFromEUR(missing, team.currency), team.currency)} do 100%
-                                                                </div>
-                                                            ) : (
-                                                                <div className="text-right mt-2 text-xs font-black text-emerald-600 uppercase tracking-widest">
-                                                                    Cíl splněn!
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                        {/* Seznam členů týmu */}
-                                                        {team.reps.length > 0 ? (
-                                                            <div className="mt-6 space-y-3">
-                                                                <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 pl-1">Členové týmu</h5>
-                                                                {team.reps.sort((a,b) => b.revEUR - a.revEUR).map((rep, rIdx) => {
-                                                                    const rProg = rep.target > 0 ? (rep.rev / rep.target) * 100 : 0;
-                                                                    const missingRep = rep.target - rep.rev;
-                                                                    
-                                                                    return (
-                                                                        <div key={`arena-rep-${rep.id}`} className={`flex flex-col gap-2 p-3 rounded-xl border transition-colors ${rIdx === 0 && rep.revEUR > 0 ? 'bg-orange-50/50 border-orange-100' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
-                                                                            <div className="flex items-center gap-3">
-                                                                                <div className={`font-black text-xs w-4 text-center ${rIdx === 0 && rep.revEUR > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{rIdx + 1}.</div>
-                                                                                <div className="w-8 h-8 rounded-full overflow-hidden shadow-sm shrink-0 border border-white">
-                                                                                    <img src={getAvatarUrl(rep)} alt={rep.name} className="w-full h-full object-cover" />
-                                                                                </div>
-                                                                                <div className="flex-grow min-w-0">
-                                                                                    <div className="font-bold text-slate-800 text-sm truncate flex items-center gap-2">
-                                                                                        {rep.name}
-                                                                                        {rIdx === 0 && rep.revEUR > 0 && <span className="text-[8px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded uppercase tracking-widest">Tahoun</span>}
-                                                                                    </div>
-                                                                                    <div className="text-[10px] font-bold text-slate-500">Mám: {formatCurrency(rep.rev, rep.currency)}</div>
-                                                                                </div>
-                                                                                <div className="text-right shrink-0">
-                                                                                    <div className={`font-black text-sm ${rProg >= 100 ? 'text-emerald-500' : 'text-slate-700'}`}>{Math.round(rProg)}%</div>
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="pl-8 pr-1">
-                                                                                <div className="flex justify-between text-[9px] font-black uppercase tracking-widest mb-1.5">
-                                                                                    <span className="text-slate-400">Cíl: {formatCurrency(rep.target, rep.currency)}</span>
-                                                                                    {missingRep > 0 ? (
-                                                                                        <span className="text-orange-500">Chybí {formatCurrency(missingRep, rep.currency)}</span>
-                                                                                    ) : (
-                                                                                        <span className="text-emerald-500">Splněno!</span>
-                                                                                    )}
-                                                                                </div>
-                                                                                <div className="h-1.5 bg-slate-200/60 rounded-full overflow-hidden shadow-inner">
-                                                                                    <div className={`h-full rounded-full transition-all duration-1000 ${rProg >= 100 ? 'bg-emerald-500' : 'bg-orange-400'}`} style={{ width: `${Math.min(rProg, 100)}%` }}></div>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    )
-                                                                })}
-                                                            </div>
-                                                        ) : (
-                                                            <div className="mt-6 bg-slate-50 rounded-2xl p-4 border border-dashed border-slate-200 text-center">
-                                                                <span className="text-xs font-bold text-slate-400">Tým zatím nemá žádné členy</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    {/* 3. ŽEBŘÍČKY SOUTĚŽÍ (Jednotlivci, Týmy, Klienti) */}
-                                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                                        
-                                        {/* JEDNOTLIVCI (%) */}
-                                        <section className="bg-white rounded-[3rem] shadow-xl overflow-hidden border border-orange-100 flex flex-col">
-                                            <div className="bg-gradient-to-r from-orange-50 to-orange-100/50 p-8 border-b border-orange-100">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <h2 className="text-2xl font-black uppercase tracking-tighter italic text-orange-600 flex items-center gap-3">
-                                                        👤 Osobní Výzvy (%)
-                                                    </h2>
-                                                    <div className="bg-orange-500 text-white px-3 py-1 rounded-xl text-xs font-black uppercase tracking-widest shadow-sm">
-                                                        Výhra 200 €
-                                                    </div>
-                                                </div>
-                                                <p className="text-slate-500 text-sm font-bold">Kdo nejvíce překoná svůj vlastní cíl?</p>
-                                            </div>
-                                            
-                                            <div className="divide-y divide-slate-100 flex-grow p-4">
-                                                {sortedIndividualsPct.map((rep, index) => {
-                                                    const missing = rep.target - rep.rev;
-                                                    
-                                                    return (
-                                                        <div key={`indiv-prog-${rep.id}`} className={`p-4 sm:p-6 rounded-3xl transition-all ${index === 0 ? 'bg-orange-50/50 border border-orange-100 mb-2' : 'hover:bg-slate-50 border border-transparent'}`}>
-                                                            <div className="flex items-center gap-4 mb-3">
-                                                                <div className={`w-8 text-center font-black text-2xl ${index === 0 ? 'text-orange-500' : index === 1 ? 'text-slate-400' : index === 2 ? 'text-amber-600' : 'text-slate-300'}`}>
-                                                                    {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`}
-                                                                </div>
-                                                                <div className="w-12 h-12 rounded-full border-2 border-white shadow-md overflow-hidden shrink-0">
-                                                                    <img src={getAvatarUrl(rep)} alt={rep.name} className="w-full h-full object-cover" />
-                                                                </div>
-                                                                <div className="flex-grow min-w-0 flex justify-between items-center">
-                                                                    <div>
-                                                                        <div className="font-black text-lg text-slate-800 truncate">{rep.name}</div>
-                                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 truncate">
-                                                                            Cíl: {formatCurrency(rep.target, rep.currency)}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className={`font-black text-3xl ${rep.pct >= 100 ? 'text-emerald-500' : 'text-orange-600'}`}>
-                                                                        {Math.round(rep.pct)}%
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="ml-12 pl-4">
-                                                                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-1.5">
-                                                                    <span className="text-slate-500">Mám: <span className="text-slate-800 text-xs">{formatCurrency(rep.rev, rep.currency)}</span></span>
-                                                                    {missing > 0 ? (
-                                                                        <span className="text-orange-500">Chybí {formatCurrency(missing, rep.currency)}</span>
-                                                                    ) : (
-                                                                        <span className="text-emerald-500">Splněno!</span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="h-3 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-                                                                    <div className={`h-full transition-all duration-1000 ${rep.pct >= 100 ? 'bg-emerald-500' : 'bg-orange-400'}`} style={{ width: `${Math.min(rep.pct, 100)}%` }}></div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </section>
-
-                                        {/* TÝMY (%) */}
-                                        <section className="bg-white rounded-[3rem] shadow-xl overflow-hidden border border-red-100 flex flex-col">
-                                            <div className="bg-gradient-to-r from-red-50 to-red-100/50 p-8 border-b border-red-100">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <h2 className="text-2xl font-black uppercase tracking-tighter italic text-red-600 flex items-center gap-3">
-                                                        👥 Týmové Výzvy (%)
-                                                    </h2>
-                                                    <div className="bg-red-500 text-white px-3 py-1 rounded-xl text-xs font-black uppercase tracking-widest shadow-sm">
-                                                        Výhra 200 €
-                                                    </div>
-                                                </div>
-                                                <p className="text-slate-500 text-sm font-bold">Který tým nejlépe plní svůj cíl?</p>
-                                            </div>
-                                            
-                                            <div className="divide-y divide-slate-100 flex-grow p-4">
-                                                {overviewStats.teams.map((team, index) => {
-                                                    if(team.id === 'unassigned') return null;
-                                                    const missing = team.targetEUR - team.revEUR;
-                                                    
-                                                    return (
-                                                        <div key={`teamcomp-${team.id}`} className={`p-4 sm:p-6 rounded-3xl transition-all ${index === 0 ? 'bg-red-50/50 border border-red-100 mb-2' : 'hover:bg-slate-50 border border-transparent'}`}>
-                                                            <div className="flex items-center gap-4 mb-3">
-                                                                <div className={`w-8 text-center font-black text-2xl ${index === 0 ? 'text-red-500' : 'text-slate-300'}`}>
-                                                                    {index === 0 ? '🥇' : `${index + 1}.`}
-                                                                </div>
-                                                                <div className="w-12 h-12 flex items-center justify-center rounded-2xl bg-white border-2 border-slate-200 shadow-md shrink-0 text-2xl">
-                                                                    {getFlagEmoji(team.country)}
-                                                                </div>
-                                                                <div className="flex-grow min-w-0 flex justify-between items-center">
-                                                                    <div>
-                                                                        <div className="font-black text-lg text-slate-800 truncate">{team.name}</div>
-                                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 truncate">
-                                                                            Cíl: {formatCurrency(team.target, team.currency)}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className={`font-black text-3xl ${team.pct >= 100 ? 'text-emerald-500' : 'text-red-600'}`}>
-                                                                        {Math.round(team.pct)}%
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="ml-12 pl-4">
-                                                                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-1.5">
-                                                                    <span className="text-slate-500">Máme: <span className="text-slate-800 text-xs">{formatCurrency(getValFromEUR(team.revEUR, team.currency), team.currency)}</span></span>
-                                                                    {missing > 0 ? (
-                                                                        <span className="text-red-500">Chybí {formatCurrency(getValFromEUR(missing, team.currency), team.currency)}</span>
-                                                                    ) : (
-                                                                        <span className="text-emerald-500">Splněno!</span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="h-3 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-                                                                    <div className={`h-full transition-all duration-1000 ${team.pct >= 100 ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min(team.pct, 100)}%` }}></div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </section>
-
-                                        {/* KLIENTI (Týdenní sprint) */}
-                                        <section className="bg-white rounded-[3rem] shadow-xl overflow-hidden border border-amber-100 flex flex-col">
-                                            <div className="bg-gradient-to-r from-amber-50 to-amber-100/50 p-8 border-b border-amber-100">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <h2 className="text-2xl font-black uppercase tracking-tighter italic text-amber-600 flex items-center gap-3">
-                                                        🎣 Lovec Klientů
-                                                    </h2>
-                                                    <div className="bg-amber-500 text-white px-3 py-1 rounded-xl text-xs font-black uppercase tracking-widest shadow-sm">
-                                                        Výhra 40 € / týden
-                                                    </div>
-                                                </div>
-                                                <p className="text-slate-500 text-sm font-bold">Počet nových unikátních klientů v tomto týdnu.</p>
-                                            </div>
-                                            <div className="divide-y divide-slate-100 flex-grow p-4">
-                                                {sortedClients.map((rep, index) => {
-                                                    const clientsVal = Number(rep.clients) || 0;
-                                                    const maxClients = Math.max(...sortedClients.map(r => r.clients), 5);
-                                                    const cPct = maxClients > 0 ? (clientsVal / maxClients) * 100 : 0;
-
-                                                    return (
-                                                        <div key={`client-${rep.id}`} className={`p-4 sm:p-6 rounded-3xl transition-all ${index === 0 ? 'bg-amber-50/50 border border-amber-100 mb-2' : 'hover:bg-slate-50 border border-transparent'}`}>
-                                                            <div className="flex items-center gap-4">
-                                                                <div className={`w-8 text-center font-black text-2xl ${index === 0 ? 'text-amber-500' : index === 1 ? 'text-slate-400' : index === 2 ? 'text-orange-400' : 'text-slate-300'}`}>
-                                                                    {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`}
-                                                                </div>
-                                                                <div className="w-12 h-12 rounded-full border-2 border-white shadow-md overflow-hidden shrink-0">
-                                                                    <img src={getAvatarUrl(rep)} alt={rep.name} className="w-full h-full object-cover" />
-                                                                </div>
-                                                                <div className="flex-grow min-w-0">
-                                                                    <div className="font-black text-lg text-slate-800 truncate">{rep.name}</div>
-                                                                    
-                                                                    <div className="flex items-center gap-3 mt-1.5">
-                                                                        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                                            <div className="h-full bg-amber-400 rounded-full" style={{ width: `${cPct}%`}}></div>
-                                                                        </div>
-                                                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">
-                                                                            Obrat: {formatCurrency(rep.rev, rep.currency)}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="text-right shrink-0 pl-4">
-                                                                    <div className="font-black text-3xl sm:text-4xl text-amber-600">
-                                                                        {clientsVal}
-                                                                    </div>
-                                                                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-600/60 text-center -mt-1">
-                                                                        Klientů
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </section>
-
-                                    </div>
-                                </div>
-                            )}
-                        </main>
-
-                        {/* TLAČÍTKO PRO ADMINA */}
-                        <button 
-                            onClick={() => isAdmin ? setIsAdmin(false) : setShowPinModal(true)}
-                            className={`fixed bottom-8 right-8 px-8 py-4 rounded-full font-black shadow-2xl z-50 transition-all border tracking-[0.2em] uppercase text-[10px] ${
-                                isAdmin ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-orange-600 border-orange-200 hover:scale-105 active:scale-95 shadow-orange-900/10'
-                            }`}
-                        >
-                            {isAdmin ? '✕ Zavřít administraci' : '⚙️ Správa dat'}
-                        </button>
-
-                        {/* MODAL PIN */}
-                        {showPinModal && (
-                            <div className="fixed inset-0 bg-slate-900/90 flex items-center justify-center z-[100] backdrop-blur-md p-4">
-                                <div className="bg-white p-10 rounded-[2.5rem] w-full max-w-sm shadow-2xl text-center animate-in">
-                                    <h3 className="text-xl font-black mb-8 uppercase tracking-tighter text-slate-800">Autorizace</h3>
-                                    <form onSubmit={handlePinSubmit}>
-                                        <input 
-                                            type="password" 
-                                            value={adminPin} 
-                                            onChange={(e) => {setAdminPin(e.target.value); setPinError('');}} 
-                                            placeholder="Zadejte PIN" 
-                                            className="w-full p-5 mb-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black text-center text-2xl focus:border-orange-500 outline-none transition-all uppercase tracking-widest" 
-                                            autoFocus 
-                                        />
-                                        {pinError && <div className="text-red-500 text-sm font-bold mb-6 italic">{pinError}</div>}
-                                        <div className="flex gap-3 font-black uppercase text-[10px] tracking-[0.2em] pt-2">
-                                            <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-4 text-slate-400 hover:text-slate-600 transition-colors bg-slate-100 rounded-2xl">Zrušit</button>
-                                            <button type="submit" className="flex-1 py-4 bg-orange-500 text-white rounded-2xl shadow-lg hover:bg-orange-600 transition-colors">Vstoupit</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* EDITOR DRAWER (ADMIN) */}
-                        {isAdmin && (
-                            <div className="fixed bottom-0 left-0 right-0 h-[85vh] bg-slate-50 border-t-4 border-orange-300 p-6 sm:p-12 overflow-y-auto z-40 shadow-[0_-30px_60px_rgba(0,0,0,0.2)] rounded-t-[3rem] animate-in">
-                                <div className="max-w-[1600px] mx-auto">
-                                    
-                                    {/* HORNÍ LIŠTA ADMINU S TLAČÍTKEM ULOŽIT */}
-                                    <div className="sticky top-0 bg-slate-50/90 backdrop-blur-md border-b-2 border-orange-200 pb-4 pt-4 px-6 sm:px-12 -mx-6 sm:-mx-12 -mt-6 sm:-mt-12 mb-8 flex flex-col sm:flex-row justify-between sm:items-center gap-4 z-50">
-                                        <div>
-                                            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter italic text-slate-800">📋 Administrace</h2>
-                                            <p className="text-slate-500 font-medium text-sm mt-1">Nezapomeňte změny uložit tlačítkem vpravo!</p>
-                                        </div>
-                                        <button 
-                                            onClick={saveAllChanges} 
-                                            disabled={isSaving}
-                                            className={`px-8 py-4 rounded-xl font-black uppercase tracking-widest text-sm shadow-xl transition-all ${saveSuccess ? 'bg-emerald-500 text-white shadow-emerald-500/30' : isSaving ? 'bg-slate-400 text-white cursor-wait' : 'bg-orange-500 hover:bg-orange-600 hover:-translate-y-1 hover:shadow-orange-500/40 text-white'}`}
-                                        >
-                                            {isSaving ? 'Ukládám...' : saveSuccess ? '✅ Úspěšně uloženo' : '💾 Uložit změny'}
-                                        </button>
-                                    </div>
-
-                                    <div className="bg-white p-4 rounded-2xl border-2 border-orange-100 shadow-sm flex flex-col sm:flex-row items-center gap-4 mb-8">
-                                        <label className="font-black text-slate-800 text-xs uppercase tracking-widest">Celkový plán firmy (EUR)</label>
-                                        <input 
-                                            type="number" 
-                                            value={adminGlobalTarget} 
-                                            onChange={(e) => setAdminGlobalTarget(e.target.value === '' ? '' : Number(e.target.value))} 
-                                            className="w-40 p-3 bg-orange-50 border border-orange-200 rounded-xl font-black text-orange-600 text-lg focus:border-orange-500 outline-none text-center" 
-                                        />
-                                    </div>
-
-                                    {/* SPRÁVA TÝMŮ */}
-                                    <div className="mb-10 bg-white p-6 sm:p-8 rounded-[2rem] border border-slate-200 shadow-sm">
-                                        <h3 className="font-black text-slate-800 text-lg uppercase tracking-tighter mb-6">Správa Týmů</h3>
-                                        
-                                        <div className="space-y-4 mb-6">
-                                            {adminTeams.map(t => (
-                                                <div key={`manage-t-${t.id}`} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col sm:flex-row gap-4 sm:items-end">
-                                                    <div className="flex-1">
-                                                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Název týmu</label>
-                                                        <input value={t.name} onChange={(e) => adminUpdateTeam(t.id, 'name', e.target.value)} className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold focus:border-orange-500 outline-none" />
-                                                    </div>
-                                                    <div className="w-24 shrink-0">
-                                                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Stát</label>
-                                                        <select value={t.country || 'CZ'} onChange={(e) => adminUpdateTeam(t.id, 'country', e.target.value)} className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold focus:border-orange-500 outline-none cursor-pointer">
-                                                            <option value="CZ">🇨🇿 CZ</option>
-                                                            <option value="SK">🇸🇰 SK</option>
-                                                            <option value="HU">🇭🇺 HU</option>
-                                                        </select>
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Týmový cíl</label>
-                                                        <div className="flex gap-2">
-                                                            <input type="number" value={t.target} onChange={(e) => adminUpdateTeam(t.id, 'target', e.target.value)} className="w-full flex-1 min-w-0 p-3 bg-white border border-slate-200 rounded-xl font-black text-slate-700 focus:border-orange-500 outline-none" />
-                                                            <select value={t.currency || 'EUR'} onChange={(e) => adminUpdateTeam(t.id, 'currency', e.target.value)} className="w-20 shrink-0 p-3 bg-slate-100 border border-slate-200 rounded-xl font-black text-slate-700 focus:border-orange-500 outline-none cursor-pointer appearance-none text-center">
-                                                                <option value="EUR">€</option>
-                                                                <option value="CZK">Kč</option>
-                                                                <option value="HUF">HUF</option>
-                                                            </select>
-                                                        </div>
-                                                    </div>
-                                                    <button onClick={() => adminDeleteTeam(t.id)} className="text-red-500 px-4 py-3 rounded-xl font-bold text-sm hover:bg-red-50 transition-colors shrink-0">
-                                                        Smazat
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        
-                                        <div className="flex gap-4 max-w-md pt-2">
-                                            <input 
-                                                value={newTeamName} 
-                                                onChange={(e) => setNewTeamName(e.target.value)} 
-                                                placeholder="Nový tým..." 
-                                                className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:border-orange-500 outline-none" 
-                                            />
-                                            <button onClick={adminAddTeam} className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-slate-700 shrink-0">
-                                                + Přidat
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* BLOKY JEDNOTLIVÝCH TÝMŮ A JEJICH OBCHODNÍKŮ */}
-                                    {adminTeams.map(team => {
-                                        const teamReps = adminSalesData.filter(r => r.teamId === team.id);
-                                        
-                                        return (
-                                            <div key={`admin-t-${team.id}`} className="mb-10">
-                                                <div className="flex flex-wrap justify-between items-center mb-6 border-b border-slate-200 pb-2 gap-4">
-                                                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
-                                                        {team.name} <span className="text-slate-400 text-sm font-medium normal-case tracking-normal">({teamReps.length} hráčů)</span>
-                                                    </h3>
-                                                    <button onClick={() => adminAddRep(team.id)} className="bg-orange-100 text-orange-700 px-5 py-2 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-orange-200 transition-colors">
-                                                        + Přidat obchodníka
-                                                    </button>
-                                                </div>
-
-                                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                                                    {teamReps.map(rep => (
-                                                        <div key={`admin-rep-${rep.id}`} className="bg-white p-6 rounded-[1.5rem] border border-slate-200 relative transition-all hover:shadow-md shadow-sm">
-                                                            <button onClick={() => setRepToDelete(rep.id)} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors font-bold text-xl">✕</button>
-                                                            
-                                                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4 pr-8">
-                                                                <div className="sm:col-span-1">
-                                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Jméno</label>
-                                                                    <input type="text" value={rep.name} onChange={(e) => adminUpdateRep(rep.id, 'name', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:border-orange-500 outline-none" />
-                                                                </div>
-                                                                <div className="sm:col-span-1">
-                                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Fotografie</label>
-                                                                    <input type="text" value={rep.photoUrl || ''} onChange={(e) => adminUpdateRep(rep.id, 'photoUrl', e.target.value)} placeholder="URL..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 focus:border-orange-500 outline-none text-xs" />
-                                                                </div>
-                                                                <div className="sm:col-span-1">
-                                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Tým</label>
-                                                                    <select value={rep.teamId || ''} onChange={(e) => adminUpdateRep(rep.id, 'teamId', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 focus:border-orange-500 outline-none cursor-pointer">
-                                                                        <option value="">Bez týmu</option>
-                                                                        {adminTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                                                                    </select>
-                                                                </div>
-                                                                <div className="sm:col-span-1">
-                                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Měna</label>
-                                                                    <select value={rep.currency || 'EUR'} onChange={(e) => adminUpdateRep(rep.id, 'currency', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 focus:border-orange-500 outline-none cursor-pointer">
-                                                                        <option value="EUR">€ (EUR)</option>
-                                                                        <option value="CZK">Kč (CZK)</option>
-                                                                        <option value="HUF">HUF</option>
-                                                                    </select>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="grid grid-cols-3 gap-4 border-t border-slate-100 pt-4 bg-orange-50/30 p-4 rounded-xl">
-                                                                <div>
-                                                                    <label className="text-[10px] font-black uppercase text-slate-500 block mb-1 text-center">Osobní Cíl</label>
-                                                                    <input type="number" value={rep.target} onChange={(e) => adminUpdateRep(rep.id, 'target', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg font-black text-slate-700 focus:border-orange-400 outline-none text-center" />
-                                                                </div>
-                                                                <div>
-                                                                    <label className="text-[10px] font-black uppercase text-slate-500 block mb-1 text-center">Dosažený Obrat</label>
-                                                                    <input type="number" value={rep.rev} onChange={(e) => adminUpdateRep(rep.id, 'rev', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg font-black text-orange-600 focus:border-orange-400 outline-none text-center" />
-                                                                </div>
-                                                                <div>
-                                                                    <label className="text-[10px] font-black uppercase text-amber-600 block mb-1 text-center">Klienti (ks)</label>
-                                                                    <input type="number" value={rep.clients} onChange={(e) => adminUpdateRep(rep.id, 'clients', e.target.value)} className="w-full p-2 bg-white border border-amber-200 rounded-lg font-black text-amber-600 focus:border-amber-400 outline-none text-center" />
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-
-                                    {/* NEZAŘAZENÍ OBCHODNÍCI */}
-                                    {adminSalesData.filter(r => !adminTeams.some(t => t.id === r.teamId)).length > 0 && (
-                                        <div className="mb-10 border-t-2 border-slate-200 pt-6">
-                                            <h3 className="text-xl font-black text-slate-400 uppercase tracking-tighter mb-4">Nezařazení hráči</h3>
-                                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 opacity-80 hover:opacity-100 transition-opacity">
-                                                {adminSalesData.filter(r => !adminTeams.some(t => t.id === r.teamId)).map(rep => (
-                                                    <div key={`admin-rep-${rep.id}`} className="bg-white p-6 rounded-[1.5rem] border border-slate-200 relative shadow-sm">
-                                                        <button onClick={() => setRepToDelete(rep.id)} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors font-bold text-xl">✕</button>
-                                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4 pr-8">
-                                                            <div className="sm:col-span-1">
-                                                                <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Jméno</label>
-                                                                <input type="text" value={rep.name} onChange={(e) => adminUpdateRep(rep.id, 'name', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800" />
-                                                            </div>
-                                                            <div className="sm:col-span-1">
-                                                                <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Tým</label>
-                                                                <select value={rep.teamId || ''} onChange={(e) => adminUpdateRep(rep.id, 'teamId', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700">
-                                                                    <option value="">Bez týmu</option>
-                                                                    {adminTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                                                                </select>
-                                                            </div>
-                                                            <div className="sm:col-span-2 flex gap-2">
-                                                                <div className="flex-1">
-                                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Cíl</label>
-                                                                    <input type="number" value={rep.target} onChange={(e) => adminUpdateRep(rep.id, 'target', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-slate-700" />
-                                                                </div>
-                                                                <div className="flex-1">
-                                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Obrat</label>
-                                                                    <input type="number" value={rep.rev} onChange={(e) => adminUpdateRep(rep.id, 'rev', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-orange-600" />
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div className="h-20" />
-                                </div>
-                            </div>
-                        )}
-
-                        {/* MODAL MAZÁNÍ */}
-                        {repToDelete && (
-                            <div className="fixed inset-0 bg-slate-900/90 flex items-center justify-center z-[110] p-4 backdrop-blur-md">
-                                <div className="bg-white p-10 rounded-[2.5rem] w-full max-w-sm shadow-2xl text-center">
-                                    <h3 className="text-2xl font-black mb-4 text-slate-800 uppercase tracking-tighter">Smazat záznam?</h3>
-                                    <p className="text-slate-500 mb-8 font-medium">Opravdu chcete tohoto obchodníka trvale odstranit?</p>
-                                    <div className="flex gap-4 font-black uppercase text-[10px] tracking-widest">
-                                        <button onClick={() => setRepToDelete(null)} className="flex-1 py-4 text-slate-400 hover:text-slate-600 transition-colors bg-slate-100 rounded-xl">Zrušit</button>
-                                        <button onClick={confirmDelete} className="flex-1 py-4 bg-red-500 text-white rounded-xl shadow-lg hover:bg-red-600">Smazat</button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+<body class="min-h-screen pb-16">
+
+    <!-- NOTIFIKAČNÍ PANEL -->
+    <div id="notification-container" class="fixed top-5 right-5 z-50 pointer-events-none"></div>
+
+    <!-- HLAVNÍ STRUKTURA STRÁNKY -->
+    <div id="app">
+        <!-- HORNÍ LIŠTA -->
+        <header class="bg-slate-900 text-white py-5 px-6 md:px-12 shadow-md mb-8">
+            <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-emerald-500 rounded-lg text-white">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
                     </div>
-                );
+                    <div>
+                        <h1 class="text-xl font-bold tracking-tight">Manažerský Pipedrive Report</h1>
+                        <p class="text-xs text-slate-400">Okamžitá vizualizace obchodních výsledků a pipeline</p>
+                    </div>
+                </div>
+
+                <div id="header-actions" class="flex items-center gap-3">
+                    <!-- Tlačítka se doplní dynamicky podle stavu dat -->
+                </div>
+            </div>
+        </header>
+
+        <!-- HLAVNÍ OBSAH -->
+        <main id="main-content" class="max-w-7xl mx-auto px-4 md:px-8">
+            <!-- Sem se bude vykreslovat rozhraní -->
+        </main>
+    </div>
+
+    <!-- ČISTÝ JAVASCRIPT BEZ NUTNOSTI KOMPILACE -->
+    <script>
+        // --- STAV APLIKACE (State) ---
+        const state = {
+            deals: [],
+            activeTab: 'dashboard',
+            searchTerm: '',
+            ownerFilter: 'all', // Bude obsahovat 'all' nebo index vlastníka (string) pro odolnost vůči překladačům
+            statusFilter: 'all',
+            dragActive: false
+        };
+
+        // --- IKONY V SVG FORMÁTU ---
+        const Icons = {
+            Upload: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>',
+            BarChart: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>',
+            Users: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+            FileSpreadsheet: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></svg>',
+            Dollar: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="1" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+            TrendingUp: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
+            Search: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+            Refresh: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+            Info: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y1="12"/><line x1="12" y1="8" x2="12.01" y1="8"/></svg>',
+            CheckCircle: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+        };
+
+        // --- UKÁZKOVÁ VZOROVÁ DATA (Se zástupci CZK, EUR a HUF) ---
+        const SAMPLE_DATA = [
+            { "Deal - Název": "AeroSpace s.r.o. - Implementace ERP", "Deal - Hodnota": "350000 CZK", "Deal - Obchodník": "Jan Novák", "Deal - Fáze": "SIGNED ORDER", "Deal - Stav": "open", "Deal - Operátor": "Knebelová Ivana" },
+            { "Deal - Název": "TechSolutions a.s. - Roční licence cloud", "Deal - Hodnota": "4800 EUR", "Deal - Obchodník": "Marie Svobodová", "Deal - Fáze": "PAID", "Deal - Stav": "won", "Deal - Operátor": "Tiefenbachová Michaela" },
+            { "Deal - Název": "SolarPower Group - Dodávka fotovoltaiky", "Deal - Hodnota": "850000 CZK", "Deal - Obchodník": "Petr Černý", "Deal - Fáze": "MEETING ARRANGED", "Deal - Stav": "open", "Deal - Operátor": "Kratochvílová Pavla" },
+            { "Deal - Název": "E-commerce Hub - SEO & PPC kampaň", "Deal - Hodnota": "45000 CZK", "Deal - Obchodník": "Jana Kučerová", "Deal - Fáze": "IN PROCESS", "Deal - Stav": "won", "Deal - Operátor": "Sýkorová Petra" },
+            { "Deal - Název": "Prague Logistics - Fleet management HW", "Deal - Hodnota": "25000 EUR", "Deal - Obchodník": "Pavel Dvořák", "Deal - Fáze": "MEETING ARRANGED", "Deal - Stav": "lost", "Deal - Operátor": "Zug Zuzana" },
+            { "Deal - Název": "Budapest Trade - Distribuce licencí", "Deal - Hodnota": "8.500.000 HUF", "Deal - Obchodník": "Vebrová Dagmar", "Deal - Fáze": "CONDITIONS SENT", "Deal - Stav": "won", "Deal - Operátor": "Knebelová Ivana" },
+            { "Deal - Název": "Stavby Praha - Revize zabezpečení", "Deal - Hodnota": "180000 CZK", "Deal - Obchodník": "Marie Svobodová", "Deal - Fáze": "ORDER SENT", "Deal - Stav": "open", "Deal - Operátor": "Kratochvílová Pavla" }
+        ];
+
+        // --- POMOCNÉ FORMÁTOVÁNÍ MĚNY ---
+        const formatCZK = (num) => {
+            return new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(num);
+        };
+
+        // --- FORMÁTOVÁNÍ MULTI-MĚNOVÝCH HODNOT PRO MANAŽERSKÉ PŘEHLEDY ---
+        const formatMultiCurrency = (currMap, consolidatedCzk = null) => {
+            const parts = [];
+            
+            // Formát CZK
+            if (currMap.CZK && currMap.CZK > 0) {
+                parts.push(new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 }).format(currMap.CZK));
+            }
+            // Formát EUR
+            if (currMap.EUR && currMap.EUR > 0) {
+                parts.push(new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(currMap.EUR));
+            }
+            // Formát HUF
+            if (currMap.HUF && currMap.HUF > 0) {
+                parts.push(new Intl.NumberFormat('hu-HU', { style: 'currency', currency: 'HUF', maximumFractionDigits: 0 }).format(currMap.HUF));
+            }
+            
+            if (parts.length === 0) return '0 Kč';
+            
+            const joinedOriginals = parts.join(' + ');
+            
+            const keys = Object.keys(currMap).filter(k => currMap[k] > 0);
+            if (keys.length === 1 && keys[0] === 'CZK') {
+                return joinedOriginals;
+            }
+            
+            if (consolidatedCzk !== null && consolidatedCzk > 0) {
+                return `${joinedOriginals} <span class="text-[11px] text-slate-400 block font-normal">(~${formatCZK(consolidatedCzk)})</span>`;
+            }
+            
+            return joinedOriginals;
+        };
+
+        // --- FORMÁTOVÁNÍ PŮVODNÍ ČÁSTKY S PŘEPOČTEM PRO SEZNAM OBCHODŮ ---
+        const formatOriginalValue = (deal) => {
+            if (deal.originalCurrency && deal.originalCurrency !== 'CZK') {
+                let formattedOrig = '';
+                if (deal.originalCurrency === 'EUR') {
+                    formattedOrig = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(deal.originalValue);
+                } else if (deal.originalCurrency === 'HUF') {
+                    formattedOrig = new Intl.NumberFormat('hu-HU', { style: 'currency', currency: 'HUF', maximumFractionDigits: 0 }).format(deal.originalValue);
+                } else {
+                    formattedOrig = `${deal.originalValue} ${deal.originalCurrency}`;
+                }
+                return `${formattedOrig} <span class="text-[11px] text-slate-400 block md:inline md:ml-1">(~${formatCZK(deal.value)})</span>`;
+            }
+            return formatCZK(deal.value);
+        };
+
+        // --- ZOBRAZENÍ NOTIFIKACÍ ---
+        const showNotification = (message, type = 'success') => {
+            const container = document.getElementById('notification-container');
+            const toast = document.createElement('div');
+            toast.className = `mb-3 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-white font-medium transition duration-300 transform translate-y-2 opacity-0 pointer-events-auto ${
+                type === 'success' ? 'bg-emerald-600' : type === 'error' ? 'bg-rose-600' : 'bg-blue-600'
+            }`;
+            toast.innerHTML = `
+                ${Icons.CheckCircle}
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        };
+
+        // --- DEFINICE KLÍČOVÝCH FÁZÍ PODLE POŽADAVKU UŽIVATELE ---
+        const isConversionPhase = (stage) => {
+            const s = String(stage).toLowerCase().trim();
+            return s.includes('signed order') || 
+                   s.includes('invoice sent') || 
+                   s.includes('regular payment') || 
+                   s.includes('partial') || 
+                   s.includes('overdue') || 
+                   s.includes('paid') || 
+                   s.includes('comission') || 
+                   s.includes('commission');
+        };
+
+        const isInProcessPhase = (stage) => {
+            const s = String(stage).toLowerCase().trim();
+            return s.includes('in process');
+        };
+
+        const isMeetingPhase = (stage) => {
+            const s = String(stage).toLowerCase().trim();
+            return s.includes('meeting') || s.includes('schůzka');
+        };
+
+        const isConditionsSentPhase = (stage) => {
+            const s = String(stage).toLowerCase().trim();
+            return s.includes('conditions sent') || s.includes('nabídka');
+        };
+
+        const isOrderSentPhase = (stage) => {
+            const s = String(stage).toLowerCase().trim();
+            return s.includes('order sent') || s.includes('objednávka odeslána');
+        };
+
+        // --- POMOCNÁ FUNKCE PRO ODSTRANĚNÍ SEPARÁTORŮ TISÍCŮ (FOOLPROOF ČIŠTĚNÍ ČÍSEL) ---
+        const cleanNumber = (val) => {
+            if (typeof val === 'number') return val;
+            if (!val) return 0;
+            
+            let s = String(val).trim();
+            
+            // Odstranění textových zkratek měn, aby nepletly detekci desítkových separátorů
+            s = s.replace(/[a-zA-Z€FtKčKČ]/g, '').trim();
+            
+            // Odstranění mezer (např. "8 500 000" -> "8500000")
+            s = s.replace(/\s/g, '');
+            
+            const lastComma = s.lastIndexOf(',');
+            const lastDot = s.lastIndexOf('.');
+            
+            if (lastComma !== -1 && lastDot !== -1) {
+                if (lastComma > lastDot) {
+                    s = s.replace(/\./g, '').replace(',', '.');
+                } else {
+                    s = s.replace(/,/g, '');
+                }
+            } else if (lastComma !== -1) {
+                const charsAfter = s.length - lastComma - 1;
+                if (charsAfter === 2 || charsAfter === 1) {
+                    s = s.replace(',', '.');
+                } else {
+                    s = s.replace(/,/g, '');
+                }
+            } else if (lastDot !== -1) {
+                const firstDot = s.indexOf('.');
+                if (firstDot !== lastDot) {
+                    s = s.replace(/\./g, '');
+                } else {
+                    const charsAfter = s.length - lastDot - 1;
+                    if (charsAfter === 3 && s.length > 5) {
+                        s = s.replace(/\./g, '');
+                    }
+                }
+            }
+            
+            s = s.replace(/[^\d.-]/g, '');
+            
+            const parsed = parseFloat(s);
+            return isNaN(parsed) ? 0 : parsed;
+        };
+
+        // --- LINGVISTICKÉ POMOCNÉ FUNKCE PRO AUTOMATICKOU DETEKCI REGIONŮ ---
+        const slovakNamesMatch = (agent, owner, operator, title) => {
+            const text = (agent + ' ' + owner + ' ' + operator + ' ' + title).toLowerCase();
+            
+            const slovakKeys = [
+                'šebo', 'sebo', 'korman', 'janák', 'janak', 'jokl', 'ján', 'jozef', 
+                'illesová', 'illesova', 'illes', 'slinčáková', 'slincakova', 'lovisek', 'lovíšek', 
+                'ganzarčík', 'ganzarcik', 'matus', 'matúš', 'zug', 'zuzana'
+            ];
+            
+            if (/[ľĽôÔŕŔĺĹäÄ]/g.test(agent + ' ' + owner + ' ' + operator + ' ' + title)) {
+                return true;
+            }
+            
+            if (text.includes('.sk') || text.includes(' slovensko') || text.includes(' bratislava') || text.includes(' košice') || text.includes(' kosice')) {
+                return true;
             }
 
-            const root = ReactDOM.createRoot(document.getElementById('root'));
-            root.render(<App />);
+            return slovakKeys.some(key => text.includes(key));
         };
 
-        if (window.FirebaseServices) {
-            renderApp();
-        } else {
-            window.addEventListener('firebaseReady', renderApp);
-        }
+        const hungarianNamesMatch = (agent, owner, operator, title) => {
+            const text = (agent + ' ' + owner + ' ' + operator + ' ' + title).toLowerCase();
+            
+            if (/[őŐűŰ]/g.test(agent + ' ' + owner + ' ' + operator + ' ' + title)) {
+                return true;
+            }
+            
+            if (text.includes('.hu') || text.includes('budapest') || text.includes('kft') || text.includes(' bt.') || text.includes(' ft')) {
+                return true;
+            }
+
+            return false;
+        };
+
+        // --- BULETPROOF CSV PARSER S DETEKCÍ SEPARÁTORU (ČÁRKA VS STŘEDNÍK) ---
+        const parseCSV = (text) => {
+            let separator = ',';
+            const firstLine = text.split('\n')[0];
+            if (firstLine.includes(';')) {
+                separator = ';';
+            }
+            
+            const lines = text.split(/\r?\n/);
+            const result = [];
+            if (lines.length === 0 || !lines[0].trim()) return [];
+            
+            const headers = parseCSVLine(lines[0], separator);
+            
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const currentLine = parseCSVLine(lines[i], separator);
+                if (currentLine.length === 0) continue;
+                
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header] = currentLine[index] !== undefined ? currentLine[index] : '';
+                });
+                result.push(row);
+            }
+            return result;
+        };
+
+        const parseCSVLine = (line, separator) => {
+            const result = [];
+            let start = 0;
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                if (line[i] === '"') {
+                    inQuotes = !inQuotes;
+                } else if (line[i] === separator && !inQuotes) {
+                    let field = line.slice(start, i).trim();
+                    if (field.startsWith('"') && field.endsWith('"')) {
+                        field = field.slice(1, -1);
+                    }
+                    result.push(field.replace(/""/g, '"'));
+                    start = i + 1;
+                }
+            }
+            let lastField = line.slice(start).trim();
+            if (lastField.startsWith('"') && lastField.endsWith('"')) {
+                lastField = lastField.slice(1, -1);
+            }
+            result.push(lastField.replace(/""/g, '"'));
+            return result;
+        };
+
+        // --- DETEKTOR KÓDOVÁNÍ (Automaticky přepíná mezi UTF-8 a českým Windows-1250) ---
+        const decodeText = (arrayBuffer) => {
+            const uint8 = new Uint8Array(arrayBuffer);
+            const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+            try {
+                return utf8Decoder.decode(uint8);
+            } catch (e) {
+                const winDecoder = new TextDecoder('windows-1250');
+                return winDecoder.decode(uint8);
+            }
+        };
+
+        // --- INTELIGENTNÍ NORMALIZAČNÍ FUNKCE S DETEKCÍ MĚNY PODLE OSOB A JAZYKA ---
+        const normalizePipedriveData = (rawRows) => {
+            const EXCHANGE_RATES = {
+                'CZK': 1.0,
+                'EUR': 25.20,
+                'HUF': 0.063
+            };
+
+            return rawRows.map(row => {
+                const getVal = (possibleKeys) => {
+                    // Krok 1: Hledání přesné shody po očištění (case-insensitive)
+                    let foundKey = Object.keys(row).find(k => {
+                        const cleanK = k.toLowerCase().trim().replace(/^deal\s*-\s*/g, '');
+                        return possibleKeys.some(pk => {
+                            const cleanPk = pk.toLowerCase().trim().replace(/^deal\s*-\s*/g, '');
+                            return cleanK === cleanPk;
+                        });
+                    });
+                    
+                    // Krok 2: Pokud přesná shoda selhala, použijeme bezpečné částečné vyhledávání
+                    if (!foundKey) {
+                        foundKey = Object.keys(row).find(k => {
+                            const cleanK = k.toLowerCase().trim().replace(/^deal\s*-\s*/g, '');
+                            return possibleKeys.some(pk => {
+                                const cleanPk = pk.toLowerCase().trim().replace(/^deal\s*-\s*/g, '');
+                                if (cleanK === 'obchodník' && cleanPk === 'obchod') return false;
+                                return cleanK.includes(cleanPk) || cleanPk.includes(cleanK);
+                            });
+                        });
+                    }
+                    return foundKey ? row[foundKey] : null;
+                };
+
+                const title = getVal(['Deal - Název', 'Název', 'Title', 'Subject', 'Deal Name', 'Obchod']) || 'Bez názvu';
+                const rawValue = getVal(['Deal - Hodnota', 'Hodnota', 'Value', 'Amount', 'Částka']);
+                
+                const owner = getVal(['Deal - Vlastník', 'Vlastník', 'Owner', 'Přiřazeno uživateli']) || 'Neznámý';
+                const agent = getVal(['Deal - Obchodník', 'Obchodník', 'Salesperson']) || owner;
+                const operator = getVal(['Deal - Operátor', 'Operátor', 'Operator']) || '';
+                
+                const stage = getVal(['Deal - Fáze', 'Fáze', 'Stage', 'Stupeň']) || 'Nedefinováno';
+                const statusRaw = String(getVal(['Deal - Stav', 'Stav', 'Status']) || 'open').toLowerCase().trim();
+                const lostReason = getVal(['Důvod ztráty', 'Lost reason', 'Důvody ztráty', 'Důvod prohry']) || '';
+                const addTime = getVal(['Čas vytvoření', 'Add time', 'Datum vytvoření', 'Created', 'Vytvořeno']) || '';
+
+                let detectedCurrency = 'CZK';
+                
+                if (rawValue !== null && rawValue !== undefined) {
+                    const valStr = String(rawValue).toUpperCase().trim();
+                    if (valStr.includes('EUR') || valStr.includes('€')) detectedCurrency = 'EUR';
+                    else if (valStr.includes('HUF') || valStr.includes('FT')) detectedCurrency = 'HUF';
+                    else if (valStr.includes('CZK') || valStr.includes('KČ')) detectedCurrency = 'CZK';
+                }
+
+                if (detectedCurrency === 'CZK') {
+                    const currencyCol = getVal(['Měna', 'Currency', 'Deal - Měna', 'Deal - Currency']);
+                    if (currencyCol) {
+                        const cUpper = String(currencyCol).toUpperCase().trim();
+                        if (cUpper.includes('EUR') || cUpper.includes('€')) detectedCurrency = 'EUR';
+                        else if (cUpper.includes('HUF') || cUpper.includes('FT')) detectedCurrency = 'HUF';
+                        else if (cUpper.includes('CZK') || cUpper.includes('KČ')) detectedCurrency = 'CZK';
+                    }
+                }
+
+                if (detectedCurrency === 'CZK') {
+                    const isSlovak = slovakNamesMatch(agent, owner, operator, title);
+                    const isHungarian = hungarianNamesMatch(agent, owner, operator, title);
+
+                    if (isSlovak) {
+                        detectedCurrency = 'EUR';
+                    } else if (isHungarian) {
+                        detectedCurrency = 'HUF';
+                    }
+                }
+
+                const originalValue = cleanNumber(rawValue);
+                const rate = EXCHANGE_RATES[detectedCurrency] || 1.0;
+                const valueInCZK = originalValue * rate;
+
+                let status = 'open';
+                if (statusRaw.includes('won') || statusRaw.includes('vyhr') || statusRaw.includes('získ') || statusRaw.includes('úspěch')) {
+                    status = 'won';
+                } else if (statusRaw.includes('lost') || statusRaw.includes('prohr') || statusRaw.includes('ztrác') || statusRaw.includes('ztracen')) {
+                    status = 'lost';
+                }
+
+                return { 
+                    title, 
+                    value: valueInCZK,
+                    originalValue,
+                    originalCurrency: detectedCurrency,
+                    owner: agent,
+                    originalOwner: owner,
+                    operator,
+                    stage, 
+                    status, 
+                    lostReason, 
+                    addTime 
+                };
+            });
+        };
+
+        // --- GLOBÁLNÍ ZPRACOVÁNÍ SOUBORŮ ---
+        const handleFileUpload = (file) => {
+            if (!file) return;
+            const fileName = file.name.toLowerCase();
+            const reader = new FileReader();
+
+            if (fileName.endsWith('.csv')) {
+                reader.onload = (e) => {
+                    try {
+                        const text = decodeText(e.target.result);
+                        const json = parseCSV(text);
+                        
+                        if (json.length === 0) {
+                            showNotification("Nahrávaný CSV soubor neobsahuje žádná data.", "error");
+                            return;
+                        }
+
+                        state.deals = normalizePipedriveData(json);
+                        state.ownerFilter = 'all';
+                        state.statusFilter = 'all';
+                        state.searchTerm = '';
+                        
+                        showNotification(`Úspěšně naimportováno ${state.deals.length} obchodů z CSV (s kódováním češtiny)!`, "success");
+                        render();
+                    } catch (err) {
+                        showNotification("Chyba při parsování CSV souboru.", "error");
+                        console.error(err);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const json = XLSX.utils.sheet_to_json(worksheet);
+                        
+                        if (json.length === 0) {
+                            showNotification("Nahrávaný Excel soubor neobsahuje žádná data.", "error");
+                            return;
+                        }
+
+                        state.deals = normalizePipedriveData(json);
+                        state.ownerFilter = 'all';
+                        state.statusFilter = 'all';
+                        state.searchTerm = '';
+                        
+                        showNotification(`Úspěšně naimportováno ${state.deals.length} obchodů z Excelu!`, "success");
+                        render();
+                    } catch (err) {
+                        showNotification("Chyba při čtení Excel souboru.", "error");
+                        console.error(err);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        };
+
+        // --- VÝPOČET STATISTIK S PŘESNÝM KALKULAČNÍM MODELEM ---
+        const getStatsAndFilteredData = () => {
+            const uniqueOwners = Array.from(new Set(state.deals.map(d => d.owner))).sort();
+            
+            // Mapování vybraného vlastníka přes stabilní index
+            const selectedOwner = state.ownerFilter === 'all' ? 'all' : uniqueOwners[parseInt(state.ownerFilter)];
+
+            const filtered = state.deals.filter(deal => {
+                // Podpora pro vyhledávání (s ochranou proti přeložení "Vebrová" -> "bagel")
+                const searchLower = state.searchTerm.toLowerCase();
+                let matchesSearch = deal.title.toLowerCase().includes(searchLower) || 
+                                      deal.owner.toLowerCase().includes(searchLower) ||
+                                      deal.operator.toLowerCase().includes(searchLower);
+                
+                // Překladačový fallback: pokud uživatel hledá "bagel" a obchodník je "Vebrová Dagmar"
+                if (!matchesSearch && searchLower.includes('bagel')) {
+                    if (deal.owner.toLowerCase().includes('vebrová') || deal.owner.toLowerCase().includes('dagmar')) {
+                        matchesSearch = true;
+                    }
+                }
+
+                const matchesOwner = state.ownerFilter === 'all' || deal.owner === selectedOwner;
+                const matchesStatus = state.statusFilter === 'all' || deal.status === state.statusFilter;
+                return matchesSearch && matchesOwner && matchesStatus;
+            });
+
+            const total = filtered.length;
+            let totalValue = 0;
+
+            // Mapy pro reálné kódované měny v celkových přehledech
+            let totalValueByCurr = { CZK: 0, EUR: 0, HUF: 0 };
+            let conversionsValueByCurr = { CZK: 0, EUR: 0, HUF: 0 };
+            let inProcessValueByCurr = { CZK: 0, EUR: 0, HUF: 0 };
+            let meetingValueByCurr = { CZK: 0, EUR: 0, HUF: 0 };
+            let conditionsValueByCurr = { CZK: 0, EUR: 0, HUF: 0 };
+            let orderSentValueByCurr = { CZK: 0, EUR: 0, HUF: 0 };
+
+            let conversionsCount = 0;
+            let conversionsValue = 0;
+
+            let inProcessCount = 0;
+            let inProcessValue = 0;
+
+            let meetingCount = 0;
+            let meetingValue = 0;
+
+            let conditionsCount = 0;
+            let conditionsValue = 0;
+
+            let orderSentCount = 0;
+            let orderSentValue = 0;
+
+            filtered.forEach(d => {
+                totalValue += d.value;
+                const curr = d.originalCurrency || 'CZK';
+                const origVal = d.originalValue || 0;
+                
+                totalValueByCurr[curr] = (totalValueByCurr[curr] || 0) + origVal;
+                
+                if (isConversionPhase(d.stage)) {
+                    conversionsCount++;
+                    conversionsValue += d.value;
+                    conversionsValueByCurr[curr] = (conversionsValueByCurr[curr] || 0) + origVal;
+                } else if (isInProcessPhase(d.stage)) {
+                    inProcessCount++;
+                    inProcessValue += d.value;
+                    inProcessValueByCurr[curr] = (inProcessValueByCurr[curr] || 0) + origVal;
+                } else if (isMeetingPhase(d.stage)) {
+                    meetingCount++;
+                    meetingValue += d.value;
+                    meetingValueByCurr[curr] = (meetingValueByCurr[curr] || 0) + origVal;
+                } else if (isConditionsSentPhase(d.stage)) {
+                    conditionsCount++;
+                    conditionsValue += d.value;
+                    conditionsValueByCurr[curr] = (conditionsValueByCurr[curr] || 0) + origVal;
+                } else if (isOrderSentPhase(d.stage)) {
+                    orderSentCount++;
+                    orderSentValue += d.value;
+                    orderSentValueByCurr[curr] = (orderSentValueByCurr[curr] || 0) + origVal;
+                }
+            });
+
+            const conversionRate = total > 0 ? Math.round((conversionsCount / total) * 100) : 0;
+            const inProcessRate = total > 0 ? Math.round((inProcessCount / total) * 100) : 0;
+            const meetingRate = total > 0 ? Math.round((meetingCount / total) * 100) : 0;
+            const conditionsRate = total > 0 ? Math.round((conditionsCount / total) * 100) : 0;
+            const orderSentRate = total > 0 ? Math.round((orderSentCount / total) * 100) : 0;
+
+            const avgValue = conversionsCount > 0 ? Math.round(conversionsValue / conversionsCount) : 0;
+
+            // Výkon obchodníků s rozpadem na konkrétní měny
+            const repsMap = {};
+            filtered.forEach(d => {
+                if (!repsMap[d.owner]) {
+                    repsMap[d.owner] = { 
+                        name: d.owner, 
+                        wonVal: 0, lostVal: 0, openVal: 0, count: 0, totalVal: 0, convCount: 0,
+                        wonValByCurr: { CZK: 0, EUR: 0, HUF: 0 },
+                        openValByCurr: { CZK: 0, EUR: 0, HUF: 0 },
+                        lostValByCurr: { CZK: 0, EUR: 0, HUF: 0 },
+                        totalValByCurr: { CZK: 0, EUR: 0, HUF: 0 }
+                    };
+                }
+                const curr = d.originalCurrency || 'CZK';
+                const origVal = d.originalValue || 0;
+                
+                repsMap[d.owner].count++;
+                repsMap[d.owner].totalVal += d.value;
+                repsMap[d.owner].totalValByCurr[curr] = (repsMap[d.owner].totalValByCurr[curr] || 0) + origVal;
+                
+                if (isConversionPhase(d.stage)) {
+                    repsMap[d.owner].wonVal += d.value;
+                    repsMap[d.owner].convCount++;
+                    repsMap[d.owner].wonValByCurr[curr] = (repsMap[d.owner].wonValByCurr[curr] || 0) + origVal;
+                } else {
+                    repsMap[d.owner].openVal += d.value;
+                    repsMap[d.owner].openValByCurr[curr] = (repsMap[d.owner].openValByCurr[curr] || 0) + origVal;
+                }
+                if (d.status === 'lost') {
+                    repsMap[d.owner].lostVal += d.value;
+                    repsMap[d.owner].lostValByCurr[curr] = (repsMap[d.owner].lostValByCurr[curr] || 0) + origVal;
+                }
+            });
+            const ownerStats = Object.values(repsMap).sort((a, b) => b.totalVal - a.totalVal);
+
+            // Výkon operátorů s rozpadem na konkrétní měny
+            const operatorMap = {};
+            filtered.forEach(d => {
+                if (!d.operator) return;
+                if (!operatorMap[d.operator]) {
+                    operatorMap[d.operator] = { 
+                        name: d.operator, 
+                        wonVal: 0, lostVal: 0, openVal: 0, count: 0, totalVal: 0, convCount: 0,
+                        wonValByCurr: { CZK: 0, EUR: 0, HUF: 0 },
+                        openValByCurr: { CZK: 0, EUR: 0, HUF: 0 },
+                        lostValByCurr: { CZK: 0, EUR: 0, HUF: 0 },
+                        totalValByCurr: { CZK: 0, EUR: 0, HUF: 0 }
+                    };
+                }
+                const curr = d.originalCurrency || 'CZK';
+                const origVal = d.originalValue || 0;
+                
+                operatorMap[d.operator].count++;
+                operatorMap[d.operator].totalVal += d.value;
+                operatorMap[d.operator].totalValByCurr[curr] = (operatorMap[d.operator].totalValByCurr[curr] || 0) + origVal;
+                
+                if (isConversionPhase(d.stage)) {
+                    operatorMap[d.operator].wonVal += d.value;
+                    operatorMap[d.operator].convCount++;
+                    operatorMap[d.operator].wonValByCurr[curr] = (operatorMap[d.operator].wonValByCurr[curr] || 0) + origVal;
+                } else {
+                    operatorMap[d.operator].openVal += d.value;
+                    operatorMap[d.operator].openValByCurr[curr] = (operatorMap[d.operator].openValByCurr[curr] || 0) + origVal;
+                }
+            });
+            const operatorStats = Object.values(operatorMap).sort((a, b) => b.totalVal - a.totalVal);
+
+            const stageMap = {};
+            filtered.forEach(d => {
+                if (!stageMap[d.stage]) {
+                    stageMap[d.stage] = { stage: d.stage, value: 0, count: 0 };
+                }
+                stageMap[d.stage].value += d.value;
+                stageMap[d.stage].count++;
+            });
+            const stageStats = Object.values(stageMap).sort((a, b) => b.value - a.value);
+
+            return {
+                filtered,
+                uniqueOwners,
+                ownerStats,
+                operatorStats,
+                stageStats,
+                kpi: {
+                    total,
+                    totalValue,
+                    totalValueByCurr,
+                    conversionsCount,
+                    conversionsValue,
+                    conversionsValueByCurr,
+                    conversionRate,
+                    inProcessCount,
+                    inProcessValue,
+                    inProcessValueByCurr,
+                    meetingCount,
+                    meetingValue,
+                    meetingValueByCurr,
+                    meetingRate,
+                    conditionsCount,
+                    conditionsValue,
+                    conditionsValueByCurr,
+                    conditionsRate,
+                    orderSentCount,
+                    orderSentValue,
+                    orderSentValueByCurr,
+                    orderSentRate,
+                    avgValue
+                }
+            };
+        };
+
+        // --- MANIPULACE SE STAVEM ---
+        const loadSample = () => {
+            state.deals = normalizePipedriveData(SAMPLE_DATA);
+            state.ownerFilter = 'all';
+            state.statusFilter = 'all';
+            state.searchTerm = '';
+            showNotification("Vzorová data byla úspěšně načtena s přepočtem měn!", "success");
+            render();
+        };
+
+        const resetData = () => {
+            state.deals = [];
+            state.activeTab = 'dashboard';
+            showNotification("Všechna data byla vymazána.", "info");
+            render();
+        };
+
+        // --- RENDEROVÁNÍ ROZHRANÍ ---
+        const render = () => {
+            const mainContent = document.getElementById('main-content');
+            const headerActions = document.getElementById('header-actions');
+
+            // 1. Aktualizace záhlaví
+            if (state.deals.length > 0) {
+                headerActions.innerHTML = `
+                    <button id="btn-clear" class="text-slate-400 hover:text-white transition text-sm flex items-center gap-1.5 px-3 py-2 border border-slate-700 hover:border-slate-500 rounded-lg">
+                        ${Icons.Refresh} Vyčistit data
+                    </button>
+                    <label class="cursor-pointer bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow border border-slate-700 flex items-center gap-2 transition">
+                        ${Icons.Upload} <span>Nahrát export</span>
+                        <input type="file" id="file-input-header" class="hidden" accept=".xlsx, .xls, .csv" />
+                    </label>
+                `;
+                document.getElementById('btn-clear').addEventListener('click', resetData);
+                document.getElementById('file-input-header').addEventListener('change', (e) => handleFileUpload(e.target.files[0]));
+            } else {
+                headerActions.innerHTML = '';
+            }
+
+            // 2. Vykreslení hlavní sekce podle stavu
+            if (state.deals.length === 0) {
+                // --- STRÁNKA S IMPORTEM ---
+                mainContent.innerHTML = `
+                    <div class="max-w-3xl mx-auto mt-8">
+                        <div class="text-center mb-10">
+                            <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-3">Manažerské statistiky jedním kliknutím</h2>
+                            <p class="text-slate-600 text-lg max-w-xl mx-auto">Přetáhněte sem exportovaný soubor z Pipedrive (XLSX, XLS nebo CSV) a ihned získejte statistiky úspěšnosti call centra.</p>
+                        </div>
+
+                        <!-- Drop zóna -->
+                        <div id="drop-zone" class="border-3 border-dashed rounded-2xl p-10 text-center transition duration-200 cursor-pointer ${
+                            state.dragActive ? "border-emerald-500 bg-emerald-50/50" : "border-slate-300 bg-white hover:border-slate-400 shadow-sm"
+                        }">
+                            <div class="flex flex-col items-center pointer-events-none">
+                                <div class="p-4 bg-emerald-50 text-emerald-600 rounded-full mb-4">
+                                    ${Icons.FileSpreadsheet}
+                                </div>
+                                <p class="text-lg font-semibold text-slate-800 mb-2">Přetáhněte sem exportovaný soubor</p>
+                                <p class="text-sm text-slate-500 mb-6">Podporujeme CZK, EUR i HUF s automatickým přepočtem</p>
+                                
+                                <div class="flex flex-wrap gap-4 justify-center pointer-events-auto">
+                                    <label class="cursor-pointer bg-slate-900 hover:bg-slate-800 text-white font-semibold px-5 py-2.5 rounded-xl shadow-lg transition flex items-center gap-2">
+                                        ${Icons.Upload} Vybrat soubor z PC
+                                        <input type="file" id="file-input-main" accept=".xlsx, .xls, .csv" class="hidden" />
+                                    </label>
+                                    
+                                    <button id="btn-load-sample" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-5 py-2.5 rounded-xl shadow-lg transition flex items-center gap-2">
+                                        ${Icons.Refresh} Načíst ukázková data
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Instrukce -->
+                        <div class="mt-12 bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+                            <h3 class="text-md font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                                ${Icons.Info} Jak získat správný soubor z Pipedrive?
+                            </h3>
+                            <ol class="list-decimal list-inside text-sm text-slate-600 space-y-2">
+                                <li>Přihlaste se do účtu <strong>Pipedrive</strong>.</li>
+                                <li>Přejdete do sekce <strong>Obchody (Deals)</strong>.</li>
+                                <li>Vpravo nahoře klikněte na tři tečky a vyberte <strong>Exportovat výsledky filtru</strong>.</li>
+                                <li>Zvolte formát <strong>Excel (.xlsx)</strong> nebo <strong>CSV</strong> a stáhněte soubor.</li>
+                                <li>Stažený soubor jednoduše přetáhněte do zóny výše!</li>
+                            </ol>
+                        </div>
+                    </div>
+                `;
+
+                const dropZone = document.getElementById('drop-zone');
+                const fileInputMain = document.getElementById('file-input-main');
+                const btnLoadSample = document.getElementById('btn-load-sample');
+
+                btnLoadSample.addEventListener('click', loadSample);
+                fileInputMain.addEventListener('change', (e) => handleFileUpload(e.target.files[0]));
+            } else {
+                // --- STRÁNKA S AKTIVNÍM DASHBOARDEM ---
+                const data = getStatsAndFilteredData();
+
+                mainContent.innerHTML = `
+                    <!-- PANEL PRO KURZOVNÍ LÍSTEK (INFO O PŘEPOČTU) -->
+                    <div class="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-4 text-white shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
+                        <div class="flex items-center gap-2.5">
+                            <span class="p-2 bg-slate-700 rounded-lg text-amber-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="16"/><line x1="8" x2="16" y1="12" y2="12"/></svg>
+                            </span>
+                            <div>
+                                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Inteligentní přepočet a detekce měn</h4>
+                                <p class="text-xs text-slate-300">Všechny slovenské EUR i maďarské HUF obchody byly automaticky rozpoznány na základě obchodníků a sjednoceny do <strong>CZK (Kč)</strong>.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-4 text-xs font-mono shrink-0 bg-slate-950/50 px-3 py-1.5 rounded-lg border border-slate-700">
+                            <span class="text-emerald-400">1 EUR = 25,20 CZK</span>
+                            <span class="text-slate-600">|</span>
+                            <span class="text-emerald-400">100 HUF = 6,30 CZK</span>
+                        </div>
+                    </div>
+
+                    <!-- FILTRY A NAVIGACE -->
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-8 flex flex-col gap-5">
+                        <!-- Záložky -->
+                        <div class="flex border-b border-slate-100 pb-3 gap-2 overflow-x-auto">
+                            <button id="tab-dashboard" class="px-4 py-2 font-semibold text-sm rounded-lg transition shrink-0 flex items-center gap-2 ${
+                                state.activeTab === 'dashboard' ? 'bg-emerald-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+                            }">
+                                ${Icons.BarChart} Výkon Call Centra
+                            </button>
+                            <button id="tab-salespeople" class="px-4 py-2 font-semibold text-sm rounded-lg transition shrink-0 flex items-center gap-2 ${
+                                state.activeTab === 'salespeople' ? 'bg-emerald-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+                            }">
+                                ${Icons.Users} Obchodníci & Operátoři
+                            </button>
+                            <button id="tab-list" class="px-4 py-2 font-semibold text-sm rounded-lg transition shrink-0 flex items-center gap-2 ${
+                                state.activeTab === 'list' ? 'bg-emerald-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+                            }">
+                                ${Icons.FileSpreadsheet} Seznam Obchodů (${data.filtered.length})
+                            </button>
+                        </div>
+
+                        <!-- Filtrační panel -->
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                            <div class="relative">
+                                <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Hledat obchod / osobu</label>
+                                <div class="relative">
+                                    <div class="absolute left-3 top-3 text-slate-400">${Icons.Search}</div>
+                                    <input 
+                                        type="text" 
+                                        id="search-input"
+                                        placeholder="Hledat název, obchodníka, operátora..." 
+                                        value="${state.searchTerm}"
+                                        class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Vlastník / Obchodník</label>
+                                <select 
+                                    id="owner-filter-select"
+                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                                >
+                                    <option value="all">Všichni obchodníci (${data.uniqueOwners.length})</option>
+                                    ${data.uniqueOwners.map((owner, idx) => `
+                                        <option value="${idx}" ${state.ownerFilter === String(idx) ? 'selected' : ''}>${owner}</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Stav v Pipedrive</label>
+                                <select 
+                                    id="status-filter-select"
+                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                                >
+                                    <option value="all" ${state.statusFilter === 'all' ? 'selected' : ''}>Všechny stavy</option>
+                                    <option value="open" ${state.statusFilter === 'open' ? 'selected' : ''}>Otevřené (Rozpracované)</option>
+                                    <option value="won" ${state.statusFilter === 'won' ? 'selected' : ''}>Získané (Won)</option>
+                                    <option value="lost" ${state.statusFilter === 'lost' ? 'selected' : ''}>Ztracené (Lost)</option>
+                                </select>
+                            </div>
+
+                            <div class="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm">
+                                <span class="text-slate-500">Zobrazeno:</span>
+                                <span class="font-bold text-slate-800">${data.filtered.length} z ${state.deals.length}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KPI KARTY S METRIKAMI CALL CENTRA (S MULTI-MĚNOVÝM DETAILEM) -->
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
+                        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Úspěšné Konverze</p>
+                                <h3 class="text-lg md:text-2xl font-bold text-emerald-600">${data.kpi.conversionsCount} ks</h3>
+                                <p class="text-xs text-slate-500">${formatMultiCurrency(data.kpi.conversionsValueByCurr, data.kpi.conversionsValue)}</p>
+                            </div>
+                            <div class="p-3 bg-emerald-50 text-emerald-600 rounded-xl">${Icons.CheckCircle}</div>
+                        </div>
+
+                        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Úspěšnost Call Centra</p>
+                                <h3 class="text-lg md:text-2xl font-bold text-slate-800">${data.kpi.conversionRate} %</h3>
+                                <p class="text-xs text-slate-500">Kladně uzavřené z celku</p>
+                            </div>
+                            <div class="p-3 bg-blue-50 text-blue-600 rounded-xl">${Icons.TrendingUp}</div>
+                        </div>
+
+                        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Průměrný úspěšný deal</p>
+                                <h3 class="text-lg md:text-2xl font-bold text-slate-800">${formatCZK(data.kpi.avgValue)}</h3>
+                                <p class="text-xs text-slate-500">Pouze z konvertovaných fází</p>
+                            </div>
+                            <div class="p-3 bg-indigo-50 text-indigo-600 rounded-xl">${Icons.BarChart}</div>
+                        </div>
+
+                        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Odložené (In Process)</p>
+                                <h3 class="text-lg md:text-2xl font-bold text-amber-600">${data.kpi.inProcessRate} %</h3>
+                                <p class="text-xs text-slate-500">${data.kpi.inProcessCount} ks <span class="block">${formatMultiCurrency(data.kpi.inProcessValueByCurr, data.kpi.inProcessValue)}</span></p>
+                            </div>
+                            <div class="p-3 bg-amber-50 text-amber-600 rounded-xl">${Icons.FileSpreadsheet}</div>
+                        </div>
+                    </div>
+
+                    <!-- DYNAMICKÁ SEKCE PODLE ZÁLOŽKY -->
+                    <div id="tab-view-container"></div>
+                `;
+
+                const tabViewContainer = document.getElementById('tab-view-container');
+
+                if (state.activeTab === 'dashboard') {
+                    // --- ZÁLOŽKA: DASHBOARD ---
+                    tabViewContainer.innerHTML = `
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <!-- Detailní analýza převodu z Call Centra -->
+                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-1">
+                                <h3 class="text-md font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                    Úspěšnost Call Centra
+                                </h3>
+                                
+                                <div class="flex flex-col items-center justify-center p-6 bg-slate-50 rounded-xl mb-6">
+                                    <span class="text-5xl font-black text-emerald-600 mb-2">${data.kpi.conversionRate}%</span>
+                                    <span class="text-xs text-slate-500 uppercase tracking-wider font-semibold text-center">Konverzní poměr z celku</span>
+                                    <p class="text-[11px] text-slate-400 text-center mt-3 leading-relaxed">
+                                        Procento klientů úspěšně převedených do fází: Signed Order, Invoice sent, Regular payment, Partial, Overdue, Paid, Commission.
+                                    </p>
+                                </div>
+
+                                <div class="space-y-4">
+                                    <div class="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                                        <span class="text-slate-500 font-medium">Celkový počet kontaktů:</span>
+                                        <span class="font-bold text-slate-800">${data.kpi.total} ks</span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                                        <span class="text-emerald-600 font-bold">Kladné konverze:</span>
+                                        <span class="font-bold text-emerald-600">${data.kpi.conversionsCount} ks</span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                                        <span class="text-amber-600 font-semibold">Odložené (In Process):</span>
+                                        <span class="font-bold text-amber-600">${data.kpi.inProcessCount} ks</span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-sm">
+                                        <span class="text-slate-500 font-medium">Průměrná konverze (CZK):</span>
+                                        <span class="font-bold text-emerald-600">${formatCZK(data.kpi.avgValue)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Procesní Nálevka (Funnel podle požadavků) -->
+                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-2">
+                                <h3 class="text-md font-bold text-slate-800 mb-6">Průběh akvizice & rozdělení fází z celku</h3>
+                                
+                                <div class="space-y-6">
+                                    <!-- 1. Sjednaná schůzka (Zaevidováno) -->
+                                    <div>
+                                        <div class="flex justify-between items-center mb-2 text-sm">
+                                            <div>
+                                                <span class="font-bold text-slate-800">1. Sjednaná Schůzka (Meeting)</span>
+                                                <span class="text-xs text-slate-400 block">Výchozí bod akvizice</span>
+                                            </div>
+                                            <div class="text-right">
+                                                <span class="font-bold text-blue-600 text-lg">${data.kpi.meetingRate}%</span>
+                                                <span class="text-xs text-slate-500 block">${data.kpi.meetingCount} ks (${formatCZK(data.kpi.meetingValue)})</span>
+                                            </div>
+                                        </div>
+                                        <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                                            <div class="bg-blue-500 h-full rounded-full transition-all duration-500" style="width: ${data.kpi.meetingRate}%"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 2. Odloženo (In Process) -->
+                                    <div>
+                                        <div class="flex justify-between items-center mb-2 text-sm">
+                                            <div>
+                                                <span class="font-bold text-slate-800">2. Odložené případy (In Process)</span>
+                                                <span class="text-xs text-slate-400 block">Zatím neuzavřené / odložené obchody</span>
+                                            </div>
+                                            <div class="text-right">
+                                                <span class="font-bold text-amber-500 text-lg">${data.kpi.inProcessRate}%</span>
+                                                <span class="text-xs text-slate-500 block">${data.kpi.inProcessCount} ks (${formatCZK(data.kpi.inProcessValue)})</span>
+                                            </div>
+                                        </div>
+                                        <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                                            <div class="bg-amber-500 h-full rounded-full transition-all duration-500" style="width: ${data.kpi.inProcessRate}%"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 3. Rozjednané obchody (Conditions Sent) -->
+                                    <div>
+                                        <div class="flex justify-between items-center mb-2 text-sm">
+                                            <div>
+                                                <span class="font-bold text-slate-800">3. Zaslaná Cenová Nabídka (Conditions Sent)</span>
+                                                <span class="text-xs text-slate-400 block">Rozjednané případy s odeslanou nabídkou</span>
+                                            </div>
+                                            <div class="text-right">
+                                                <span class="font-bold text-indigo-500 text-lg">${data.kpi.conditionsRate}%</span>
+                                                <span class="text-xs text-slate-500 block">${data.kpi.conditionsCount} ks (${formatCZK(data.kpi.conditionsValue)})</span>
+                                            </div>
+                                        </div>
+                                        <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                                            <div class="bg-indigo-500 h-full rounded-full transition-all duration-500" style="width: ${data.kpi.conditionsRate}%"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 4. Odeslaná objednávka (Order Sent) -->
+                                    <div>
+                                        <div class="flex justify-between items-center mb-2 text-sm">
+                                            <div>
+                                                <span class="font-bold text-slate-800">4. Objednávka k Podpisu (Order Sent)</span>
+                                                <span class="text-xs text-slate-400 block">Odeslaná objednávka připravená k uzavření</span>
+                                            </div>
+                                            <div class="text-right">
+                                                <span class="font-bold text-purple-500 text-lg">${data.kpi.orderSentRate}%</span>
+                                                <span class="text-xs text-slate-500 block">${data.kpi.orderSentCount} ks (${formatCZK(data.kpi.orderSentValue)})</span>
+                                            </div>
+                                        </div>
+                                        <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                                            <div class="bg-purple-500 h-full rounded-full transition-all duration-500" style="width: ${data.kpi.orderSentRate}%"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 5. Kladné Konverze -->
+                                    <div>
+                                        <div class="flex justify-between items-center mb-2 text-sm">
+                                            <div>
+                                                <span class="font-bold text-emerald-600">5. Kladně Uzavřeno (Conversions)</span>
+                                                <span class="text-xs text-emerald-500 block">Signed, Paid, Commission atd.</span>
+                                            </div>
+                                            <div class="text-right">
+                                                <span class="font-bold text-emerald-600 text-lg">${data.kpi.conversionRate}%</span>
+                                                <span class="text-xs text-slate-500 block">${data.kpi.conversionsCount} ks (${formatCZK(data.kpi.conversionsValue)})</span>
+                                            </div>
+                                        </div>
+                                        <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                                            <div class="bg-emerald-500 h-full rounded-full transition-all duration-500" style="width: ${data.kpi.conversionRate}%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (state.activeTab === 'salespeople') {
+                    // --- ZÁLOŽKA: OBCHODNÍCI A OPERÁTOŘI (S PŮVODNÍMI MĚNAMI) ---
+                    tabViewContainer.innerHTML = `
+                        <div class="space-y-8">
+                            <!-- Výsledky Obchodníků -->
+                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                                <h3 class="text-md font-bold text-slate-800 mb-6">Výsledky Obchodníků (Deal - Obchodník)</h3>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-left text-sm">
+                                        <thead>
+                                            <tr class="border-b border-slate-100 text-slate-400 text-xs font-semibold uppercase tracking-wider pb-3">
+                                                <th class="py-3 px-4">Obchodník</th>
+                                                <th class="py-3 px-4">Celkem případů</th>
+                                                <th class="py-3 px-4 text-emerald-600 font-semibold">Objem konverzí (V měně obchodníka)</th>
+                                                <th class="py-3 px-4 text-emerald-600 font-semibold">Počet konverzí</th>
+                                                <th class="py-3 px-4 font-semibold text-slate-700">Rozpracovaný objem</th>
+                                                <th class="py-3 px-4 font-semibold text-slate-700">Win Rate %</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-50 text-slate-700">
+                                            ${data.ownerStats.map(rep => {
+                                                const winRate = rep.count > 0 ? Math.round((rep.convCount / rep.count) * 100) : 0;
+                                                return `
+                                                    <tr class="hover:bg-slate-50/70 transition">
+                                                        <td class="py-4 px-4 font-bold text-slate-900">${rep.name}</td>
+                                                        <td class="py-4 px-4">${rep.count} ks</td>
+                                                        <td class="py-4 px-4 text-emerald-600 font-semibold">${formatMultiCurrency(rep.wonValByCurr, rep.wonVal)}</td>
+                                                        <td class="py-4 px-4 text-emerald-600 font-bold">${rep.convCount} ks</td>
+                                                        <td class="py-4 px-4 text-amber-600 font-medium">${formatMultiCurrency(rep.openValByCurr, rep.openVal)}</td>
+                                                        <td class="py-4 px-4">
+                                                            <div class="flex items-center gap-2">
+                                                                <span class="font-bold w-10 text-right">${winRate}%</span>
+                                                                <div class="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
+                                                                    <div class="bg-emerald-500 h-full rounded-full" style="width: ${winRate}%"></div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                            }).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Výsledky Operátorů -->
+                            ${data.operatorStats.length > 0 ? `
+                                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                                    <h3 class="text-md font-bold text-slate-800 mb-6">Výkonnost Operátorů (Deal - Operátor)</h3>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-left text-sm">
+                                            <thead>
+                                                <tr class="border-b border-slate-100 text-slate-400 text-xs font-semibold uppercase tracking-wider pb-3">
+                                                    <th class="py-3 px-4">Operátor</th>
+                                                    <th class="py-3 px-4">Zajištěno obchodů</th>
+                                                    <th class="py-3 px-4 text-emerald-600 font-semibold">Získaný objem</th>
+                                                    <th class="py-3 px-4 text-emerald-600 font-semibold">Počet konverzí</th>
+                                                    <th class="py-3 px-4 font-semibold text-slate-700">Rozpracovaný objem</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-slate-50 text-slate-700">
+                                                ${data.operatorStats.map(op => `
+                                                    <tr class="hover:bg-slate-50/70 transition">
+                                                        <td class="py-4 px-4 font-bold text-slate-900">${op.name}</td>
+                                                        <td class="py-4 px-4">${op.count} ks</td>
+                                                        <td class="py-4 px-4 text-emerald-600 font-semibold">${formatMultiCurrency(op.wonValByCurr, op.wonVal)}</td>
+                                                        <td class="py-4 px-4 text-emerald-600 font-bold">${op.convCount} ks</td>
+                                                        <td class="py-4 px-4 text-amber-600 font-medium">${formatMultiCurrency(op.openValByCurr, op.openVal)}</td>
+                                                    </tr>
+                                                `).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                } else if (state.activeTab === 'list') {
+                    // --- ZÁLOŽKA: SEZNAM OBCHODŮ ---
+                    tabViewContainer.innerHTML = `
+                        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                            <div class="p-5 border-b border-slate-100">
+                                <h3 class="text-md font-bold text-slate-800">Detailní přehled vyfiltrovaných obchodů</h3>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm">
+                                    <thead>
+                                        <tr class="border-b border-slate-100 bg-slate-50 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                                            <th class="py-4 px-6">Název obchodu</th>
+                                            <th class="py-4 px-4">Obchodník</th>
+                                            <th class="py-4 px-4">Operátor</th>
+                                            <th class="py-4 px-4">Fáze</th>
+                                            <th class="py-4 px-4 text-right">Hodnota (Původní & CZK)</th>
+                                            <th class="py-4 px-4 text-center">Vyhodnocení</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 text-slate-700">
+                                        ${data.filtered.length === 0 ? `
+                                            <tr>
+                                                <td colSpan="6" class="py-8 text-center text-slate-400">Žádné obchody neodpovídají filtrům.</td>
+                                            </tr>
+                                        ` : data.filtered.map(deal => `
+                                            <tr class="hover:bg-slate-50/70 transition">
+                                                <td class="py-4 px-6 font-bold text-slate-800">${deal.title}</td>
+                                                <td class="py-4 px-4 text-slate-600">${deal.owner}</td>
+                                                <td class="py-4 px-4 text-slate-500 italic">${deal.operator || '-'}</td>
+                                                <td class="py-4 px-4">
+                                                    <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-xs font-semibold">
+                                                        ${deal.stage}
+                                                    </span>
+                                                </td>
+                                                <td class="py-4 px-4 text-right font-bold text-slate-900">${formatOriginalValue(deal)}</td>
+                                                <td class="py-4 px-4 text-center">
+                                                    <span class="inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
+                                                        isConversionPhase(deal.stage) ? 'bg-emerald-100 text-emerald-800' :
+                                                        isInProcessPhase(deal.stage) ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+                                                    }">
+                                                        ${isConversionPhase(deal.stage) ? 'Kladná konverze' : 
+                                                          isInProcessPhase(deal.stage) ? 'Odloženo' : 'Ostatní fáze'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // --- PŘIPOJENÍ EVENTŮ ---
+                document.getElementById('tab-dashboard').addEventListener('click', () => { state.activeTab = 'dashboard'; render(); });
+                document.getElementById('tab-salespeople').addEventListener('click', () => { state.activeTab = 'salespeople'; render(); });
+                document.getElementById('tab-list').addEventListener('click', () => { state.activeTab = 'list'; render(); });
+
+                document.getElementById('owner-filter-select').addEventListener('change', (e) => {
+                    state.ownerFilter = e.target.value;
+                    render();
+                });
+                document.getElementById('status-filter-select').addEventListener('change', (e) => {
+                    state.statusFilter = e.target.value;
+                    render();
+                });
+
+                const searchInput = document.getElementById('search-input');
+                searchInput.addEventListener('input', (e) => {
+                    state.searchTerm = e.target.value;
+                    const freshData = getStatsAndFilteredData();
+                    const visibleCountSpan = searchInput.closest('div').parentElement.nextElementSibling.nextElementSibling.nextElementSibling?.querySelector('.font-bold');
+                    if (visibleCountSpan) {
+                        visibleCountSpan.textContent = `${freshData.filtered.length} z ${state.deals.length}`;
+                    }
+                });
+
+                searchInput.addEventListener('change', () => { render(); });
+                searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') render(); });
+                
+                if (document.activeElement && document.activeElement.id !== 'search-input' && state.searchTerm !== '') {
+                    const newInput = document.getElementById('search-input');
+                    if (newInput) {
+                        newInput.focus();
+                        newInput.setSelectionRange(newInput.value.length, newInput.value.length);
+                    }
+                }
+            }
+        };
+
+        // --- BEZPEČNÝ GLOBÁLNÍ DRAG & DROP PRO CELÉ OKNO ---
+        window.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            const dropZone = document.getElementById('drop-zone');
+            if (dropZone) dropZone.classList.add('border-emerald-500', 'bg-emerald-50/50');
+        });
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        window.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            if (e.clientX === 0 && e.clientY === 0) {
+                const dropZone = document.getElementById('drop-zone');
+                if (dropZone) dropZone.classList.remove('border-emerald-500', 'bg-emerald-50/50');
+            }
+        });
+        window.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const dropZone = document.getElementById('drop-zone');
+            if (dropZone) dropZone.classList.remove('border-emerald-500', 'bg-emerald-50/50');
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                handleFileUpload(e.dataTransfer.files[0]);
+            }
+        });
+
+        // --- PRVNÍ SPUŠTĚNÍ ---
+        render();
     </script>
 </body>
 </html>
